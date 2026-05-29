@@ -22,6 +22,26 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "http://127.0.0.1:5174",
 ];
 
+function normalizeOriginValue(value) {
+  return typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
+}
+
+function matchesOriginPattern(origin, pattern) {
+  const normalizedOrigin = normalizeOriginValue(origin);
+  const normalizedPattern = normalizeOriginValue(pattern);
+  if (!normalizedOrigin || !normalizedPattern) return false;
+  if (normalizedOrigin === normalizedPattern) return true;
+
+  // Support patterns like https://*.vercel.app for preview deployments.
+  if (!normalizedPattern.includes("*")) return false;
+
+  const escapedPattern = normalizedPattern
+    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*/g, ".*");
+  const regex = new RegExp(`^${escapedPattern}$`);
+  return regex.test(normalizedOrigin);
+}
+
 function isPrivateNetworkOrigin(origin) {
   try {
     const { hostname } = new URL(origin);
@@ -53,10 +73,16 @@ const allowedOrigins = (
   DEFAULT_ALLOWED_ORIGINS
 );
 
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (isPrivateNetworkOrigin(origin)) return true;
+  return allowedOrigins.some((allowedOrigin) => matchesOriginPattern(origin, allowedOrigin));
+}
+
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin) || isPrivateNetworkOrigin(origin)) {
+      if (isAllowedOrigin(origin)) {
         callback(null, true);
         return;
       }

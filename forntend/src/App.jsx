@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import LoginPage from './components/LoginPage';
 import RegisterPage from './components/RegisterPage';
@@ -20,6 +20,15 @@ import {
 } from './utils/validation';
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
+const DEFAULT_SCREEN = 'login';
+
+const buildAppUrl = (screen) => {
+  if (typeof window === 'undefined') {
+    return '/';
+  }
+
+  return `${window.location.pathname}#/${screen || DEFAULT_SCREEN}`;
+};
 
 function App() {
   const [currentScreen, setCurrentScreen] = useState('login');
@@ -38,10 +47,67 @@ function App() {
     cancelText: 'ยกเลิก',
     onConfirm: null,
   });
+  const historyIndexRef = useRef(0);
 
   const closeDialog = useCallback(() => {
     setDialogState((prev) => ({ ...prev, isOpen: false }));
   }, []);
+
+  const applyScreenState = useCallback((screen, options = {}) => {
+    setCurrentScreen(screen || DEFAULT_SCREEN);
+    setSelectedCategory(options.category ?? null);
+    setInitialChatMsg(options.chatMessage ?? '');
+  }, []);
+
+  const updateBrowserHistory = useCallback((screen, options = {}, mode = 'push') => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const nextIndex =
+      mode === 'replace'
+        ? typeof options.navIndex === 'number'
+          ? options.navIndex
+          : historyIndexRef.current
+        : historyIndexRef.current + 1;
+
+    historyIndexRef.current = nextIndex;
+
+    const state = {
+      appScreen: screen,
+      category: options.category ?? null,
+      chatMessage: options.chatMessage ?? '',
+      navIndex: nextIndex,
+    };
+
+    const url = buildAppUrl(screen);
+    if (mode === 'replace') {
+      window.history.replaceState(state, '', url);
+      return;
+    }
+
+    window.history.pushState(state, '', url);
+  }, []);
+
+  const navigateToScreen = useCallback(
+    (screen, options = {}) => {
+      applyScreenState(screen, options);
+      updateBrowserHistory(screen, options, options.replace ? 'replace' : 'push');
+    },
+    [applyScreenState, updateBrowserHistory]
+  );
+
+  const goBackInApp = useCallback(
+    (fallbackScreen, fallbackOptions = {}) => {
+      if (typeof window !== 'undefined' && historyIndexRef.current > 0) {
+        window.history.back();
+        return;
+      }
+
+      navigateToScreen(fallbackScreen, { ...fallbackOptions, replace: true });
+    },
+    [navigateToScreen]
+  );
 
   const showAlert = useCallback(({ title = 'แจ้งเตือน', message, confirmText = 'ตกลง' }) => {
     setDialogState({
@@ -88,7 +154,7 @@ function App() {
         if (response.status === 401) {
           setUserData(null);
           setGlucoseHistory([]);
-          setCurrentScreen('login');
+          navigateToScreen('login', { replace: true });
         }
         return;
       }
@@ -101,7 +167,7 @@ function App() {
     } catch (error) {
       console.error('Fetch glucose history error:', error);
     }
-  }, []);
+  }, [navigateToScreen]);
 
   const checkSession = useCallback(async () => {
     setIsCheckingSession(true);
@@ -113,25 +179,54 @@ function App() {
       if (!response.ok) {
         setUserData(null);
         setGlucoseHistory([]);
-        setCurrentScreen('login');
+        navigateToScreen('login', { replace: true });
         return;
       }
 
       const data = await response.json();
       setUserData(data.user);
-      setCurrentScreen(data.user.weight ? 'dashboard' : 'profile');
+      navigateToScreen(data.user.weight ? 'dashboard' : 'profile', { replace: true });
       await fetchGlucoseHistory();
     } catch (error) {
       console.error('Session check error:', error);
-      setCurrentScreen('login');
+      navigateToScreen('login', { replace: true });
     } finally {
       setIsCheckingSession(false);
     }
-  }, [fetchGlucoseHistory]);
+  }, [fetchGlucoseHistory, navigateToScreen]);
 
   useEffect(() => {
     checkSession();
   }, [checkSession]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined;
+    }
+
+    const initialState = window.history.state;
+    if (initialState?.appScreen) {
+      historyIndexRef.current = initialState.navIndex || 0;
+      applyScreenState(initialState.appScreen, initialState);
+    } else {
+      updateBrowserHistory(DEFAULT_SCREEN, { navIndex: 0 }, 'replace');
+    }
+
+    const handlePopState = (event) => {
+      const nextState = event.state;
+      if (nextState?.appScreen) {
+        historyIndexRef.current = nextState.navIndex || 0;
+        applyScreenState(nextState.appScreen, nextState);
+        return;
+      }
+
+      historyIndexRef.current = 0;
+      applyScreenState(DEFAULT_SCREEN);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [applyScreenState, updateBrowserHistory]);
 
   const handleLogin = async (username, password) => {
     const validationError = validateUsername(username) || validatePassword(password);
@@ -162,7 +257,7 @@ function App() {
       }
 
       setUserData(data.user);
-      setCurrentScreen(data.user.weight ? 'dashboard' : 'profile');
+      navigateToScreen(data.user.weight ? 'dashboard' : 'profile', { replace: true });
       await fetchGlucoseHistory();
     } catch (error) {
       showAlert({
@@ -190,7 +285,7 @@ function App() {
           setGlucoseHistory([]);
           setInitialChatMsg('');
           setSelectedCategory(null);
-          setCurrentScreen('login');
+          navigateToScreen('login', { replace: true });
         }
       },
     });
@@ -289,7 +384,7 @@ function App() {
       }
 
       setUserData(responseData.user);
-      setCurrentScreen('dashboard');
+      navigateToScreen('dashboard', { replace: true });
     } catch (error) {
       showAlert({
         title: 'เชื่อมต่อไม่สำเร็จ',
@@ -299,7 +394,7 @@ function App() {
   };
 
   const handleRegisterSuccess = (message) => {
-    setCurrentScreen('login');
+    navigateToScreen('login', { replace: true });
     if (message) {
       showAlert({
         title: 'สมัครสมาชิกสำเร็จ',
@@ -318,8 +413,7 @@ function App() {
       return;
     }
 
-    setInitialChatMsg(msg);
-    setCurrentScreen('chat');
+    navigateToScreen('chat', { chatMessage: msg });
   };
 
   const isAppReady = !isCheckingSession;
@@ -361,12 +455,12 @@ function App() {
             )}
 
             {isAppReady && currentScreen === 'login' && (
-              <LoginPage onLogin={handleLogin} onGoToRegister={() => setCurrentScreen('register')} />
+              <LoginPage onLogin={handleLogin} onGoToRegister={() => navigateToScreen('register')} />
             )}
 
             {isAppReady && currentScreen === 'register' && (
               <RegisterPage
-                onBack={() => setCurrentScreen('login')}
+                onBack={() => goBackInApp('login')}
                 onRegisterSuccess={handleRegisterSuccess}
                 onNotice={showAlert}
               />
@@ -387,13 +481,13 @@ function App() {
                 afterGlucose={getLatestByPhase('after')}
                 lastGlucose={glucoseHistory[0]}
                 onSaveGlucose={handleSaveGlucose}
-                onSelectReport={() => setCurrentScreen('report')}
-                onEditProfile={() => setCurrentScreen('edit_profile')}
+                onSelectReport={() => navigateToScreen('report')}
+                onEditProfile={() => navigateToScreen('edit_profile')}
                 onLogout={handleLogout}
                 onNotice={showAlert}
                 onSelectChat={(category) =>
                   category
-                    ? (setSelectedCategory(category), setCurrentScreen('category_detail'))
+                    ? navigateToScreen('category_detail', { category })
                     : navigateToChat('')
                 }
               />
@@ -403,17 +497,14 @@ function App() {
               <CategoryDetailPage
                 category={selectedCategory}
                 userData={userData}
-                onBack={() => setCurrentScreen('dashboard')}
+                onBack={() => goBackInApp('dashboard')}
                 onSelectChat={navigateToChat}
               />
             )}
 
             {isAppReady && currentScreen === 'chat' && (
               <ChatBotPage
-                onBack={() => {
-                  setInitialChatMsg('');
-                  setCurrentScreen('dashboard');
-                }}
+                onBack={() => goBackInApp('dashboard')}
                 userData={{ ...userData, lastGlucose: glucoseHistory[0] }}
                 initialMessage={initialChatMsg}
                 onNotice={showAlert}
@@ -424,14 +515,14 @@ function App() {
               <EditProfilePage
                 initialData={userData}
                 onSave={handleSaveData}
-                onCancel={() => setCurrentScreen('dashboard')}
+                onCancel={() => goBackInApp('dashboard')}
                 onNotice={showAlert}
               />
             )}
 
             {isAppReady && currentScreen === 'report' && (
               <WeeklyReportPage
-                onBack={() => setCurrentScreen('dashboard')}
+                onBack={() => goBackInApp('dashboard')}
                 glucoseHistory={glucoseHistory}
                 onConsultAI={navigateToChat}
               />

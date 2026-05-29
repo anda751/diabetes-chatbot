@@ -84,8 +84,11 @@ const SESSION_COOKIE_NAME = "diabetes_session";
 const SESSION_TTL_MS = Number.parseInt(process.env.SESSION_TTL_MS || "", 10) || 1000 * 60 * 60 * 24 * 7;
 const SESSION_SECRET =
   process.env.SESSION_SECRET || process.env.GEMINI_API_KEY || "local-dev-session-secret";
+const SESSION_COOKIE_SAME_SITE = process.env.SESSION_COOKIE_SAME_SITE?.trim() || "Lax";
 const SESSION_COOKIE_SECURE =
-  process.env.SESSION_COOKIE_SECURE === "true" || Boolean(process.env.VERCEL);
+  process.env.SESSION_COOKIE_SECURE === "true" ||
+  SESSION_COOKIE_SAME_SITE.toLowerCase() === "none" ||
+  Boolean(process.env.VERCEL);
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -155,7 +158,7 @@ function setSessionCookie(res, signedSession) {
     `${SESSION_COOKIE_NAME}=${encodeURIComponent(signedSession)}`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    `SameSite=${SESSION_COOKIE_SAME_SITE}`,
     `Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
   ];
 
@@ -171,7 +174,7 @@ function clearSessionCookie(res) {
     `${SESSION_COOKIE_NAME}=`,
     "Path=/",
     "HttpOnly",
-    "SameSite=Lax",
+    `SameSite=${SESSION_COOKIE_SAME_SITE}`,
     "Max-Age=0",
   ];
 

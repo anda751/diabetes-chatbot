@@ -215,7 +215,7 @@ export default function DashboardPage({
         </div>
       </div>
 
-      <div className="app-scroll-region custom-scrollbar flex-1 space-y-5 px-5 py-5">
+      <div className="app-scroll-region custom-scrollbar flex-1 space-y-5 px-5 py-5 [padding-bottom:calc(1.25rem+env(safe-area-inset-bottom))]">
         <SectionCard>
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -464,8 +464,6 @@ export default function DashboardPage({
           </p>
         </div>
       </div>
-
-      <div className="app-safe-bottom" />
 
       <GlucoseModal
         isOpen={isModalOpen}

@@ -1,18 +1,28 @@
 {
+  "id": "/",
   "name": "Today Care",
   "short_name": "Today Care",
   "description": "ผู้ช่วยดูแลสุขภาพและเตือนมื้ออาหารสำหรับผู้ป่วยเบาหวาน",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "background_color": "#f8fafc",
   "theme_color": "#2563eb",
+  "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     }
-  ]
+  ],
+  "categories": ["health", "medical", "lifestyle"]
 }

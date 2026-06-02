@@ -1,7 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Apple,
+  Bell,
+  BellRing,
   BookOpen,
   Check,
   ChevronRight,
@@ -10,8 +12,6 @@ import {
   Dumbbell,
   LogOut,
   MessageCircleHeart,
-  Bell,
-  BellRing,
   Plus,
   Settings2,
   ShieldPlus,
@@ -22,23 +22,71 @@ import {
 } from 'lucide-react';
 import GlucoseModal from './GlucoseModal';
 
+const DEFAULT_MEAL_REMINDERS = [
+  { id: 'breakfast', label: 'มื้อเช้า', time: '08:00', isEnabled: true, isDone: false },
+  { id: 'lunch', label: 'มื้อกลางวัน', time: '12:00', isEnabled: true, isDone: false },
+  { id: 'dinner', label: 'มื้อเย็น', time: '18:00', isEnabled: true, isDone: false },
+];
+
+function createReminderId() {
+  return `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeReminder(reminder, fallback) {
+  return {
+    id: String(reminder?.id || fallback.id),
+    label: String(reminder?.label || fallback.label),
+    time: String(reminder?.time || fallback.time),
+    isEnabled: reminder?.isEnabled !== false,
+    isDone: Boolean(reminder?.isDone),
+  };
+}
+
 function loadMealReminders() {
   try {
     const saved = localStorage.getItem('meal_reminders');
-    return saved
-      ? JSON.parse(saved)
-      : [
-          { id: 1, label: 'มื้อเช้า', time: '08:00', isDone: false },
-          { id: 2, label: 'มื้อกลางวัน', time: '12:00', isDone: false },
-          { id: 3, label: 'มื้อเย็น', time: '18:00', isDone: false },
-        ];
+    if (!saved) return DEFAULT_MEAL_REMINDERS;
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_MEAL_REMINDERS;
+    return parsed.map((item, index) =>
+      normalizeReminder(item, DEFAULT_MEAL_REMINDERS[index] || DEFAULT_MEAL_REMINDERS[0])
+    );
   } catch (_error) {
-    return [
-      { id: 1, label: 'มื้อเช้า', time: '08:00', isDone: false },
-      { id: 2, label: 'มื้อกลางวัน', time: '12:00', isDone: false },
-      { id: 3, label: 'มื้อเย็น', time: '18:00', isDone: false },
-    ];
+    return DEFAULT_MEAL_REMINDERS;
   }
+}
+
+function mergeReminders(localReminders, serverReminders) {
+  if (!Array.isArray(serverReminders) || serverReminders.length === 0) {
+    return localReminders.length > 0 ? localReminders : DEFAULT_MEAL_REMINDERS;
+  }
+
+  const localDoneMap = new Map(
+    localReminders.map((item) => [String(item.id), Boolean(item.isDone)])
+  );
+
+  return serverReminders.map((item, index) => {
+    const fallback = DEFAULT_MEAL_REMINDERS[index] || DEFAULT_MEAL_REMINDERS[0];
+    const normalized = normalizeReminder(item, fallback);
+    return {
+      ...normalized,
+      isDone: localDoneMap.get(normalized.id) || false,
+    };
+  });
+}
+
+function remindersAreSame(left, right) {
+  if (left.length !== right.length) return false;
+  return left.every((item, index) => {
+    const compare = right[index];
+    return (
+      String(item.id) === String(compare?.id) &&
+      String(item.label) === String(compare?.label) &&
+      String(item.time) === String(compare?.time) &&
+      Boolean(item.isEnabled !== false) === Boolean(compare?.isEnabled !== false) &&
+      Boolean(item.isDone) === Boolean(compare?.isDone)
+    );
+  });
 }
 
 export default function DashboardPage({
@@ -58,24 +106,60 @@ export default function DashboardPage({
   onNotice,
   notificationPermission,
   onEnableNotifications,
+  initialReminders = [],
+  onRemindersChange,
+  reminderSyncState = 'idle',
 }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [reminders, setReminders] = useState(loadMealReminders);
+  const [reminders, setReminders] = useState(() =>
+    mergeReminders(loadMealReminders(), initialReminders)
+  );
   const [isSettingReminders, setIsSettingReminders] = useState(false);
+  const isHydratingFromPropsRef = useRef(false);
+  const hasMountedRef = useRef(false);
+
+  useEffect(() => {
+    setReminders((prev) => {
+      const nextValue = mergeReminders(prev, initialReminders);
+      if (remindersAreSame(prev, nextValue)) return prev;
+      isHydratingFromPropsRef.current = true;
+      return nextValue;
+    });
+  }, [initialReminders]);
 
   useEffect(() => {
     localStorage.setItem('meal_reminders', JSON.stringify(reminders));
   }, [reminders]);
 
+  useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+
+    if (isHydratingFromPropsRef.current) {
+      isHydratingFromPropsRef.current = false;
+      return;
+    }
+
+    onRemindersChange?.(reminders);
+  }, [onRemindersChange, reminders]);
+
   const visibleReminders = useMemo(
-    () => reminders.filter((item) => isSettingReminders || !item.isDone),
+    () =>
+      reminders.filter((item) => {
+        if (isSettingReminders) return true;
+        if (item.isEnabled === false) return false;
+        return !item.isDone;
+      }),
     [isSettingReminders, reminders]
   );
+
   const notificationState = useMemo(() => {
     if (notificationPermission === 'granted') {
       return {
         label: 'เปิดการแจ้งเตือนแล้ว',
-        detail: 'ระบบจะแจ้งเตือนเมื่อถึงเวลาอาหาร หากเว็บแอปยังเปิดอยู่',
+        detail: 'ระบบพร้อมแจ้งเตือนมื้ออาหารแม้ไม่ได้ค้างอยู่ในหน้าแอป หากเบราว์เซอร์รองรับ push notification',
         tone: 'bg-emerald-50 border-emerald-100 text-emerald-700',
       };
     }
@@ -83,7 +167,7 @@ export default function DashboardPage({
     if (notificationPermission === 'denied') {
       return {
         label: 'การแจ้งเตือนถูกปิดอยู่',
-        detail: 'เปิดสิทธิ์แจ้งเตือนในเบราว์เซอร์ก่อน จึงจะเด้งแจ้งเตือนได้',
+        detail: 'เปิดสิทธิ์แจ้งเตือนในเบราว์เซอร์ก่อน แล้วระบบจะส่งเตือนให้อัตโนมัติ',
         tone: 'bg-amber-50 border-amber-100 text-amber-700',
       };
     }
@@ -91,17 +175,24 @@ export default function DashboardPage({
     if (notificationPermission === 'unsupported') {
       return {
         label: 'อุปกรณ์นี้ยังไม่รองรับ',
-        detail: 'เบราว์เซอร์นี้ยังไม่รองรับการแจ้งเตือนจากเว็บแอป',
+        detail: 'เบราว์เซอร์หรือโหมดใช้งานนี้ยังไม่รองรับการแจ้งเตือนจากเว็บแอป',
         tone: 'bg-slate-100 border-slate-200 text-slate-600',
       };
     }
 
     return {
       label: 'ยังไม่ได้เปิดการแจ้งเตือน',
-      detail: 'กดเปิดเพื่อให้ระบบเตือนเวลาอาหาร พร้อมเสียงและการสั่นบนมือถือที่รองรับ',
+      detail: 'กดเปิดเพื่อให้ระบบส่งเตือนเวลาอาหารผ่านมือถือหรือคอมพิวเตอร์ที่อนุญาตไว้',
       tone: 'bg-sky-50 border-sky-100 text-sky-700',
     };
   }, [notificationPermission]);
+
+  const reminderSyncLabel = useMemo(() => {
+    if (reminderSyncState === 'saving') return 'กำลังบันทึกเวลาแจ้งเตือน...';
+    if (reminderSyncState === 'error') return 'บันทึกเวลาแจ้งเตือนไม่สำเร็จ ลองใหม่อีกครั้งได้ค่ะ';
+    if (reminderSyncState === 'success') return 'บันทึกเวลาแจ้งเตือนเรียบร้อยแล้ว';
+    return 'เวลาแจ้งเตือนจะถูกซิงก์กับระบบเพื่อใช้แจ้งเตือนเบื้องหลัง';
+  }, [reminderSyncState]);
 
   const treatmentStyle = useMemo(() => {
     switch (treatment) {
@@ -141,7 +232,13 @@ export default function DashboardPage({
   const addReminder = () => {
     setReminders((prev) => [
       ...prev,
-      { id: Date.now(), label: 'ช่วงเวลาใหม่', time: '12:00', isDone: false },
+      {
+        id: createReminderId(),
+        label: 'ช่วงเวลาใหม่',
+        time: '12:00',
+        isEnabled: true,
+        isDone: false,
+      },
     ]);
   };
 
@@ -297,6 +394,7 @@ export default function DashboardPage({
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-black">{notificationState.label}</p>
                 <p className="mt-1 text-sm leading-6 opacity-90">{notificationState.detail}</p>
+                <p className="mt-2 text-xs font-bold opacity-80">{reminderSyncLabel}</p>
               </div>
             </div>
 
@@ -339,7 +437,7 @@ export default function DashboardPage({
                   )}
 
                   {isSettingReminders ? (
-                    <div className="flex flex-1 gap-2">
+                    <div className="flex flex-1 flex-wrap gap-2">
                       <input
                         type="text"
                         value={item.label}
@@ -352,6 +450,16 @@ export default function DashboardPage({
                         onChange={(event) => updateReminder(item.id, 'time', event.target.value)}
                         className="border-b border-slate-200 bg-transparent text-sm font-bold outline-none"
                       />
+                      <label className="inline-flex items-center gap-2 text-xs font-bold text-slate-500">
+                        <input
+                          type="checkbox"
+                          checked={item.isEnabled !== false}
+                          onChange={(event) =>
+                            updateReminder(item.id, 'isEnabled', event.target.checked)
+                          }
+                        />
+                        เปิดใช้งาน
+                      </label>
                     </div>
                   ) : (
                     <div>
@@ -369,7 +477,7 @@ export default function DashboardPage({
 
             {!isSettingReminders && visibleReminders.length === 0 && (
               <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-4 text-sm font-bold text-emerald-700">
-                วันนี้ทำครบทุกมื้อแล้ว เก่งมากครับ
+                วันนี้ทำครบทุกมื้อแล้ว เก่งมากค่ะ
               </div>
             )}
 

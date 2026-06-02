@@ -1,0 +1,18 @@
+{
+  "name": "Today Care",
+  "short_name": "Today Care",
+  "description": "ผู้ช่วยดูแลสุขภาพและเตือนมื้ออาหารสำหรับผู้ป่วยเบาหวาน",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

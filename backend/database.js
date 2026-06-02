@@ -103,6 +103,31 @@ export async function initDB() {
     )
   `);
 
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS meal_reminders (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      reminder_key TEXT NOT NULL,
+      label TEXT NOT NULL,
+      time TEXT NOT NULL,
+      is_enabled BOOLEAN DEFAULT TRUE,
+      last_sent_on TEXT,
+      UNIQUE (user_id, reminder_key)
+    )
+  `);
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      endpoint TEXT NOT NULL UNIQUE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      user_agent TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
   console.log("Database Ready: Connected to Postgres and ensured tables exist.");
   return db;
 }

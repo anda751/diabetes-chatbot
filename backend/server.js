@@ -9,6 +9,7 @@ import {
 } from "node:crypto";
 import { promisify } from "node:util";
 import { GoogleGenAI } from "@google/genai";
+import webpush from "web-push";
 import { initDB } from "./database.js";
 
 dotenv.config();
@@ -121,6 +122,21 @@ const ai = new GoogleGenAI({
 });
 
 const db = await initDB();
+const REMINDER_TIMEZONE = process.env.REMINDER_TIMEZONE || "Asia/Bangkok";
+const VAPID_SUBJECT =
+  process.env.VAPID_SUBJECT || process.env.PUSH_CONTACT || "mailto:support@example.com";
+const generatedVapidKeys = webpush.generateVAPIDKeys();
+const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY?.trim() || generatedVapidKeys.publicKey;
+const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY?.trim() || generatedVapidKeys.privateKey;
+let reminderSchedulerRunning = false;
+
+webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+
+if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+  console.warn(
+    "Push notifications are using temporary VAPID keys. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY for stable production subscriptions."
+  );
+}
 
 function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -129,6 +145,111 @@ function normalizeText(value) {
 function toNumber(value) {
   const num = Number(value);
   return Number.isFinite(num) ? num : NaN;
+}
+
+function formatZonedDateParts(date = new Date(), timeZone = REMINDER_TIMEZONE) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const getPart = (type) => parts.find((part) => part.type === type)?.value || "";
+  return {
+    year: getPart("year"),
+    month: getPart("month"),
+    day: getPart("day"),
+    hour: getPart("hour"),
+    minute: getPart("minute"),
+  };
+}
+
+function getReminderDateKey(date = new Date()) {
+  const parts = formatZonedDateParts(date);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function getReminderMinuteKey(date = new Date()) {
+  const parts = formatZonedDateParts(date);
+  return `${parts.hour}:${parts.minute}`;
+}
+
+function sanitizeReminderLabel(label) {
+  return normalizeText(label).slice(0, 80);
+}
+
+function sanitizeReminderTime(time) {
+  return normalizeText(time);
+}
+
+function validateReminderLabel(label) {
+  const value = sanitizeReminderLabel(label);
+  if (!value) return "กรุณาระบุชื่อการแจ้งเตือน";
+  if (value.length > 80) return "ชื่อการแจ้งเตือนยาวเกินไป";
+  return "";
+}
+
+function validateReminderTime(time) {
+  const value = sanitizeReminderTime(time);
+  if (!/^\d{2}:\d{2}$/.test(value)) return "รูปแบบเวลาแจ้งเตือนไม่ถูกต้อง";
+
+  const [hour, minute] = value.split(":").map(Number);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return "เวลาแจ้งเตือนไม่ถูกต้อง";
+  }
+
+  return "";
+}
+
+function normalizeReminderInput(reminder, index) {
+  return {
+    reminderKey: normalizeText(reminder?.id ?? reminder?.reminderKey ?? `${index + 1}`) || `${index + 1}`,
+    label: sanitizeReminderLabel(reminder?.label),
+    time: sanitizeReminderTime(reminder?.time),
+    isEnabled: reminder?.isEnabled !== false,
+  };
+}
+
+function validateReminderList(reminders) {
+  if (!Array.isArray(reminders)) return "รูปแบบรายการแจ้งเตือนไม่ถูกต้อง";
+  if (reminders.length > 12) return "ตั้งการแจ้งเตือนได้ไม่เกิน 12 รายการ";
+
+  for (let i = 0; i < reminders.length; i += 1) {
+    const reminder = normalizeReminderInput(reminders[i], i);
+    const validationError = validateReminderLabel(reminder.label) || validateReminderTime(reminder.time);
+    if (validationError) return validationError;
+  }
+
+  return "";
+}
+
+function mapReminderRow(reminder) {
+  return {
+    id: reminder.reminder_key,
+    label: reminder.label,
+    time: reminder.time,
+    isEnabled: reminder.is_enabled !== false,
+  };
+}
+
+function validatePushSubscription(subscription) {
+  if (!subscription || typeof subscription !== "object") {
+    return "ข้อมูลการสมัครรับแจ้งเตือนไม่ถูกต้อง";
+  }
+
+  const endpoint = normalizeText(subscription.endpoint);
+  const p256dh = normalizeText(subscription.keys?.p256dh);
+  const auth = normalizeText(subscription.keys?.auth);
+
+  if (!endpoint || !p256dh || !auth) {
+    return "ข้อมูลการสมัครรับแจ้งเตือนไม่ครบถ้วน";
+  }
+
+  return "";
 }
 
 function parseCookies(cookieHeader = "") {
@@ -222,6 +343,93 @@ async function getLatestGlucoseRecord(userId) {
     "SELECT * FROM glucose_history WHERE user_id = ? ORDER BY id DESC LIMIT 1",
     [userId]
   );
+}
+
+async function getMealReminders(userId) {
+  const reminders = await db.all(
+    "SELECT * FROM meal_reminders WHERE user_id = ? ORDER BY time ASC, id ASC",
+    [userId]
+  );
+  return reminders.map(mapReminderRow);
+}
+
+async function saveMealReminders(userId, reminders) {
+  await db.run("DELETE FROM meal_reminders WHERE user_id = ?", [userId]);
+
+  for (let index = 0; index < reminders.length; index += 1) {
+    const reminder = normalizeReminderInput(reminders[index], index);
+    await db.run(
+      `INSERT INTO meal_reminders (user_id, reminder_key, label, time, is_enabled)
+       VALUES (?, ?, ?, ?, ?)`,
+      [userId, reminder.reminderKey, reminder.label, reminder.time, reminder.isEnabled]
+    );
+  }
+}
+
+async function deletePushSubscription(endpoint) {
+  await db.run("DELETE FROM push_subscriptions WHERE endpoint = ?", [endpoint]);
+}
+
+async function sendPushToUser(userId, payload) {
+  const subscriptions = await db.all(
+    "SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?",
+    [userId]
+  );
+
+  for (const subscriptionRow of subscriptions) {
+    const subscription = {
+      endpoint: subscriptionRow.endpoint,
+      keys: {
+        p256dh: subscriptionRow.p256dh,
+        auth: subscriptionRow.auth,
+      },
+    };
+
+    try {
+      await webpush.sendNotification(subscription, JSON.stringify(payload));
+    } catch (error) {
+      const statusCode = error?.statusCode;
+      if (statusCode === 404 || statusCode === 410) {
+        await deletePushSubscription(subscriptionRow.endpoint);
+        continue;
+      }
+      console.error("Push notification error:", error?.message || error);
+    }
+  }
+}
+
+async function runReminderScheduler() {
+  if (reminderSchedulerRunning) return;
+  reminderSchedulerRunning = true;
+
+  try {
+    const todayKey = getReminderDateKey();
+    const minuteKey = getReminderMinuteKey();
+    const dueReminders = await db.all(
+      `SELECT * FROM meal_reminders
+       WHERE is_enabled = TRUE
+         AND time = ?
+         AND (last_sent_on IS NULL OR last_sent_on <> ?)`,
+      [minuteKey, todayKey]
+    );
+
+    for (const reminder of dueReminders) {
+      await sendPushToUser(reminder.user_id, {
+        title: `ถึงเวลาทาน${reminder.label}`,
+        body: `ถึงเวลา ${reminder.time} น. อย่าลืมทานอาหารให้ตรงเวลาเพื่อช่วยคุมน้ำตาลนะคะ`,
+        tag: `meal-reminder-${reminder.user_id}-${reminder.reminder_key}`,
+      });
+
+      await db.run("UPDATE meal_reminders SET last_sent_on = ? WHERE id = ?", [
+        todayKey,
+        reminder.id,
+      ]);
+    }
+  } catch (error) {
+    console.error("Reminder scheduler error:", error);
+  } finally {
+    reminderSchedulerRunning = false;
+  }
 }
 
 async function requireAuth(req, res, next) {
@@ -546,12 +754,17 @@ function buildDiabetesChatPrompt({ user, lastGlucose, message, intent }) {
 `.trim();
 }
 
+app.get("/api/push-public-key", (_req, res) => {
+  res.json({ publicKey: VAPID_PUBLIC_KEY });
+});
+
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     aiConfigured: Boolean(process.env.GEMINI_API_KEY),
     chatModels: GEMINI_MODELS,
     sessionConfigured: Boolean(SESSION_SECRET),
+    pushConfigured: Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY),
   });
 });
 
@@ -631,6 +844,83 @@ app.post("/api/logout", (req, res) => {
 
 app.get("/api/session", requireAuth, async (req, res) => {
   res.json({ status: "success", user: req.authUser });
+});
+
+app.get("/api/reminders", requireAuth, async (req, res) => {
+  try {
+    const reminders = await getMealReminders(req.authUser.id);
+    res.json({ reminders });
+  } catch (error) {
+    console.error("Fetch reminders error:", error);
+    res.status(500).json({ error: "ดึงรายการแจ้งเตือนไม่สำเร็จ" });
+  }
+});
+
+app.put("/api/reminders", requireAuth, async (req, res) => {
+  const reminders = req.body?.reminders;
+
+  try {
+    const validationError = validateReminderList(reminders);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    await saveMealReminders(req.authUser.id, reminders);
+    const savedReminders = await getMealReminders(req.authUser.id);
+    res.json({ status: "success", reminders: savedReminders });
+  } catch (error) {
+    console.error("Save reminders error:", error);
+    res.status(500).json({ error: "บันทึกรายการแจ้งเตือนไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/push-subscriptions", requireAuth, async (req, res) => {
+  const subscription = req.body?.subscription;
+
+  try {
+    const validationError = validatePushSubscription(subscription);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    await db.run(
+      `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, user_agent)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(endpoint) DO UPDATE
+       SET user_id = EXCLUDED.user_id,
+           p256dh = EXCLUDED.p256dh,
+           auth = EXCLUDED.auth,
+           user_agent = EXCLUDED.user_agent`,
+      [
+        req.authUser.id,
+        normalizeText(subscription.endpoint),
+        normalizeText(subscription.keys?.p256dh),
+        normalizeText(subscription.keys?.auth),
+        normalizeText(req.headers["user-agent"] || ""),
+      ]
+    );
+
+    res.json({ status: "success" });
+  } catch (error) {
+    console.error("Save push subscription error:", error);
+    res.status(500).json({ error: "บันทึกการสมัครรับแจ้งเตือนไม่สำเร็จ" });
+  }
+});
+
+app.delete("/api/push-subscriptions", requireAuth, async (req, res) => {
+  const endpoint = normalizeText(req.body?.endpoint);
+
+  try {
+    if (!endpoint) {
+      return res.status(400).json({ error: "กรุณาระบุ subscription ที่ต้องการลบ" });
+    }
+
+    await deletePushSubscription(endpoint);
+    res.json({ status: "success" });
+  } catch (error) {
+    console.error("Delete push subscription error:", error);
+    res.status(500).json({ error: "ลบการสมัครรับแจ้งเตือนไม่สำเร็จ" });
+  }
 });
 
 app.post("/api/update-profile", requireAuth, async (req, res) => {
@@ -811,6 +1101,15 @@ app.get("/api/admin/stats", async (_req, res) => {
 
 const PORT = process.env.PORT || 5000;
 const HOST = process.env.HOST || "0.0.0.0";
+
+runReminderScheduler().catch((error) => {
+  console.error("Initial reminder scheduler run failed:", error);
+});
+setInterval(() => {
+  runReminderScheduler().catch((error) => {
+    console.error("Reminder scheduler tick failed:", error);
+  });
+}, 30000);
 
 if (!process.env.VERCEL) {
   app.listen(PORT, HOST, () => console.log(`Backend ready on http://${HOST}:${PORT}`));

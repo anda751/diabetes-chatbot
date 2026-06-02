@@ -18,6 +18,7 @@ const jsonHeaders = { 'Content-Type': 'application/json' };
 const DEFAULT_SCREEN = 'login';
 const REMINDER_STORAGE_KEY = 'meal_reminders';
 const REMINDER_ALERTS_KEY = 'meal_reminder_alerts';
+const PUSH_ENDPOINT_STORAGE_KEY = 'push_subscription_endpoint';
 const APP_SCREENS = [
   'login',
   'register',
@@ -91,10 +92,25 @@ function getReminderAlertKey(reminder, date = new Date()) {
   return `${getTodayKey(date)}:${reminder.id}:${reminder.time}`;
 }
 
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let i = 0; i < rawData.length; i += 1) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+
+  return outputArray;
+}
+
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState(DEFAULT_SCREEN);
   const [userData, setUserData] = useState(null);
   const [glucoseHistory, setGlucoseHistory] = useState([]);
+  const [reminders, setReminders] = useState(() => loadMealRemindersFromStorage());
+  const [reminderSyncState, setReminderSyncState] = useState('idle');
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [initialChatMsg, setInitialChatMsg] = useState('');
   const [showToast, setShowToast] = useState(false);
@@ -118,6 +134,8 @@ export default function App() {
   const toastTimerRef = useRef(null);
   const reminderToastTimerRef = useRef(null);
   const reminderDialogRef = useRef('');
+  const reminderSyncTimerRef = useRef(null);
+  const pushSubscriptionRef = useRef(null);
 
   const closeDialog = useCallback(() => {
     setDialogState((prev) => ({ ...prev, isOpen: false }));
@@ -249,6 +267,135 @@ export default function App() {
     }
   }, []);
 
+  const getServiceWorkerRegistration = useCallback(async () => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
+    const existingRegistration = await navigator.serviceWorker.getRegistration();
+    if (existingRegistration) return existingRegistration;
+    return navigator.serviceWorker.register('/sw.js');
+  }, []);
+
+  const syncPushSubscriptionToServer = useCallback(async (subscription) => {
+    const response = await fetch(`${API_URL}/push-subscriptions`, {
+      method: 'POST',
+      headers: jsonHeaders,
+      credentials: 'include',
+      body: JSON.stringify({ subscription }),
+    });
+
+    if (!response.ok) {
+      throw new Error('save_subscription_failed');
+    }
+
+    window.localStorage.setItem(PUSH_ENDPOINT_STORAGE_KEY, subscription.endpoint);
+  }, []);
+
+  const removePushSubscriptionFromServer = useCallback(async (endpoint) => {
+    if (!endpoint) return;
+
+    try {
+      await fetch(`${API_URL}/push-subscriptions`, {
+        method: 'DELETE',
+        headers: jsonHeaders,
+        credentials: 'include',
+        body: JSON.stringify({ endpoint }),
+      });
+    } catch (_error) {
+      // Ignore cleanup failures.
+    } finally {
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(PUSH_ENDPOINT_STORAGE_KEY);
+      }
+    }
+  }, []);
+
+  const registerPushSubscription = useCallback(async () => {
+    if (
+      typeof window === 'undefined' ||
+      !('serviceWorker' in navigator) ||
+      !('PushManager' in window)
+    ) {
+      return false;
+    }
+
+    const registration = await getServiceWorkerRegistration();
+    if (!registration) return false;
+
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      const keyResponse = await fetch(`${API_URL}/push-public-key`, {
+        credentials: 'include',
+      });
+
+      if (!keyResponse.ok) {
+        throw new Error('missing_push_public_key');
+      }
+
+      const { publicKey } = await keyResponse.json();
+      if (!publicKey) {
+        throw new Error('missing_push_public_key');
+      }
+
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey),
+      });
+    }
+
+    pushSubscriptionRef.current = subscription;
+    await syncPushSubscriptionToServer(subscription.toJSON());
+    return true;
+  }, [getServiceWorkerRegistration, syncPushSubscriptionToServer]);
+
+  const syncRemindersToBackend = useCallback(async (nextReminders) => {
+    if (!userData) return;
+
+    const sanitizedReminders = nextReminders.map((item, index) => ({
+      id: String(item.id || `reminder-${index + 1}`),
+      label: String(item.label || '').trim(),
+      time: String(item.time || '').trim(),
+      isEnabled: item.isEnabled !== false,
+    }));
+
+    setReminders(nextReminders);
+    setReminderSyncState('saving');
+
+    try {
+      const response = await fetch(`${API_URL}/reminders`, {
+        method: 'PUT',
+        headers: jsonHeaders,
+        credentials: 'include',
+        body: JSON.stringify({ reminders: sanitizedReminders }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'save_reminders_failed');
+      }
+
+      const syncedReminders = Array.isArray(data.reminders) ? data.reminders : sanitizedReminders;
+      setReminders((prev) =>
+        syncedReminders.map((item) => {
+          const previous = prev.find((entry) => String(entry.id) === String(item.id));
+          return {
+            ...item,
+            isDone: previous?.isDone || false,
+          };
+        })
+      );
+      setReminderSyncState('success');
+    } catch (error) {
+      console.error('Save reminders error:', error);
+      setReminderSyncState('error');
+    } finally {
+      if (reminderSyncTimerRef.current) {
+        window.clearTimeout(reminderSyncTimerRef.current);
+      }
+      reminderSyncTimerRef.current = window.setTimeout(() => {
+        setReminderSyncState('idle');
+      }, 2500);
+    }
+  }, [userData]);
+
   const requestNotificationPermission = useCallback(async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
       showAlert({
@@ -260,6 +407,11 @@ export default function App() {
 
     if (window.Notification.permission === 'granted') {
       setNotificationPermission('granted');
+      try {
+        await registerPushSubscription();
+      } catch (error) {
+        console.error('Push subscription error:', error);
+      }
       return true;
     }
 
@@ -275,8 +427,17 @@ export default function App() {
     }
 
     playReminderSound();
+    try {
+      await registerPushSubscription();
+    } catch (error) {
+      console.error('Push subscription error:', error);
+      showAlert({
+        title: 'เปิดการแจ้งเตือนแล้ว',
+        message: 'ระบบอนุญาตการแจ้งเตือนแล้ว แต่ยังผูกอุปกรณ์ไม่สำเร็จ ลองกดใหม่อีกครั้งได้ค่ะ',
+      });
+    }
     return true;
-  }, [playReminderSound, showAlert]);
+  }, [playReminderSound, registerPushSubscription, showAlert]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -315,6 +476,14 @@ export default function App() {
     return () => window.removeEventListener('focus', syncPermission);
   }, []);
 
+  useEffect(() => {
+    if (!userData || notificationPermission !== 'granted') return;
+
+    registerPushSubscription().catch((error) => {
+      console.error('Push subscription sync error:', error);
+    });
+  }, [notificationPermission, registerPushSubscription, userData]);
+
   useEffect(
     () => () => {
       if (toastTimerRef.current) {
@@ -322,6 +491,9 @@ export default function App() {
       }
       if (reminderToastTimerRef.current) {
         window.clearTimeout(reminderToastTimerRef.current);
+      }
+      if (reminderSyncTimerRef.current) {
+        window.clearTimeout(reminderSyncTimerRef.current);
       }
     },
     []
@@ -393,12 +565,12 @@ export default function App() {
     };
 
     const checkMealReminders = () => {
-      const reminders = loadMealRemindersFromStorage();
       if (!Array.isArray(reminders) || reminders.length === 0) return;
 
       const currentMinute = getMinuteKey(new Date());
       reminders.forEach((reminder) => {
         if (!reminder?.time || !reminder?.label) return;
+        if (reminder.isEnabled === false) return;
         if (String(reminder.time) !== currentMinute) return;
         triggerReminder(reminder);
       });
@@ -407,7 +579,7 @@ export default function App() {
     checkMealReminders();
     const interval = window.setInterval(checkMealReminders, 30000);
     return () => window.clearInterval(interval);
-  }, [playReminderSound, showAlert, userData]);
+  }, [playReminderSound, reminders, showAlert, userData]);
 
   const fetchGlucoseHistory = useCallback(async () => {
     try {
@@ -434,6 +606,36 @@ export default function App() {
     }
   }, [navigateToScreen]);
 
+  const fetchReminders = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_URL}/reminders`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        if (response.status === 401) {
+          setReminders(loadMealRemindersFromStorage());
+        }
+        return;
+      }
+
+      const data = await response.json();
+      if (Array.isArray(data.reminders)) {
+        setReminders((prev) =>
+          data.reminders.map((item) => {
+            const previous = prev.find((entry) => String(entry.id) === String(item.id));
+            return {
+              ...item,
+              isDone: previous?.isDone || false,
+            };
+          })
+        );
+      }
+    } catch (error) {
+      console.error('Fetch reminders error:', error);
+    }
+  }, []);
+
   const checkSession = useCallback(async () => {
     setIsCheckingSession(true);
     try {
@@ -451,14 +653,22 @@ export default function App() {
       const data = await response.json();
       setUserData(data.user);
       navigateToScreen(data.user.weight ? 'dashboard' : 'profile', { replace: true });
+      await fetchReminders();
       await fetchGlucoseHistory();
+      if (typeof window !== 'undefined' && window.Notification?.permission === 'granted') {
+        try {
+          await registerPushSubscription();
+        } catch (error) {
+          console.error('Push subscription sync error:', error);
+        }
+      }
     } catch (error) {
       console.error('Session check error:', error);
       navigateToScreen('login', { replace: true });
     } finally {
       setIsCheckingSession(false);
     }
-  }, [fetchGlucoseHistory, navigateToScreen]);
+  }, [fetchGlucoseHistory, fetchReminders, navigateToScreen, registerPushSubscription]);
 
   useEffect(() => {
     checkSession();
@@ -521,7 +731,15 @@ export default function App() {
 
       setUserData(data.user);
       navigateToScreen(data.user.weight ? 'dashboard' : 'profile', { replace: true });
+      await fetchReminders();
       await fetchGlucoseHistory();
+      if (typeof window !== 'undefined' && window.Notification?.permission === 'granted') {
+        try {
+          await registerPushSubscription();
+        } catch (error) {
+          console.error('Push subscription sync error:', error);
+        }
+      }
     } catch (_error) {
       showAlert({
         title: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ',
@@ -537,6 +755,12 @@ export default function App() {
       confirmText: 'ออกจากระบบ',
       onConfirm: async () => {
         try {
+          if (typeof window !== 'undefined') {
+            const savedEndpoint = window.localStorage.getItem(PUSH_ENDPOINT_STORAGE_KEY);
+            if (savedEndpoint) {
+              await removePushSubscriptionFromServer(savedEndpoint);
+            }
+          }
           await fetch(`${API_URL}/logout`, {
             method: 'POST',
             credentials: 'include',
@@ -546,6 +770,7 @@ export default function App() {
         } finally {
           setUserData(null);
           setGlucoseHistory([]);
+          setReminders(loadMealRemindersFromStorage());
           setInitialChatMsg('');
           setSelectedCategory(null);
           navigateToScreen('login', { replace: true });
@@ -769,6 +994,9 @@ export default function App() {
                   onNotice={showAlert}
                   notificationPermission={notificationPermission}
                   onEnableNotifications={requestNotificationPermission}
+                  initialReminders={reminders}
+                  onRemindersChange={syncRemindersToBackend}
+                  reminderSyncState={reminderSyncState}
                   onSelectChat={(category) =>
                     category ? navigateToScreen('category_detail', { category }) : navigateToChat('')
                   }

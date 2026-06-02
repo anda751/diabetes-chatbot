@@ -10,11 +10,13 @@ export default function CategoryDetailPage({ category, onBack, onSelectChat }) {
   const Icon = data.icon;
 
   return (
-    <div className="min-h-[100dvh] sm:h-full bg-slate-50 flex flex-col">
-      <div className={`${data.color} app-safe-top px-6 pb-7 pt-4 text-white rounded-b-[2.5rem] shadow-lg relative`}>
+    <div className="app-page app-page-transition flex flex-col bg-slate-50 sm:h-full">
+      <div
+        className={`${data.color} app-safe-top relative rounded-b-[2.5rem] px-6 pb-7 pt-4 text-white shadow-lg`}
+      >
         <button
           onClick={onBack}
-          className="touch-target absolute top-[max(1rem,env(safe-area-inset-top))] left-4 inline-flex items-center justify-center rounded-2xl bg-white/20 transition hover:bg-white/30"
+          className="touch-target absolute left-4 top-[max(1rem,env(safe-area-inset-top))] inline-flex items-center justify-center rounded-2xl bg-white/20 transition hover:bg-white/30"
           aria-label="กลับ"
         >
           <ChevronLeft size={22} />
@@ -29,7 +31,7 @@ export default function CategoryDetailPage({ category, onBack, onSelectChat }) {
         </div>
       </div>
 
-      <div className="flex-1 space-y-4 px-5 py-5">
+      <div className="app-scroll-region custom-scrollbar flex-1 space-y-4 px-5 py-5">
         <div className="rounded-[1.5rem] border border-white bg-white/95 p-4 shadow-sm">
           <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-slate-400">
             <Sparkles size={13} />
@@ -40,14 +42,17 @@ export default function CategoryDetailPage({ category, onBack, onSelectChat }) {
           </p>
         </div>
 
-        {data.questions.map((question) => (
+        {data.questions.map((question, index) => (
           <button
             key={question}
             onClick={() => onSelectChat(question)}
-            className="touch-target w-full rounded-[1.5rem] border border-slate-100 bg-white p-5 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md active:scale-[0.99]"
+            className="touch-target animate-fade-up w-full rounded-[1.5rem] border border-slate-100 bg-white p-5 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md active:scale-[0.99]"
+            style={{ animationDelay: `${index * 50}ms` }}
           >
             <div className="flex items-center gap-4">
-              <div className={`${data.color} flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm`}>
+              <div
+                className={`${data.color} flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm`}
+              >
                 <MessageCircle size={18} />
               </div>
               <p className="flex-1 text-sm font-semibold leading-6 text-slate-700">{question}</p>
@@ -57,7 +62,7 @@ export default function CategoryDetailPage({ category, onBack, onSelectChat }) {
         ))}
       </div>
 
-      <div className="app-safe-bottom px-5 pb-5">
+      <div className="app-bottom-docked bg-slate-50 px-5 pt-2">
         <button
           onClick={() => onSelectChat(`${data.title} ช่วยแนะนำแบบเข้าใจง่ายให้หน่อยค่ะ`)}
           className="touch-target w-full rounded-[1.75rem] bg-slate-900 py-4 text-base font-black text-white shadow-xl transition active:scale-[0.99]"

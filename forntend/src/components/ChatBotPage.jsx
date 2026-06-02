@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, ChevronLeft, Mic, MicOff, Send, User } from 'lucide-react';
+import { Bot, ChevronLeft, Mic, MicOff, Send, Sparkles, User } from 'lucide-react';
 import { API_URL } from '../config';
 import { CHAT_QUICK_PROMPTS } from '../data/aiTopics';
 import { validateChatMessage } from '../utils/validation';
@@ -49,6 +49,7 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
   });
 
   const scrollContainerRef = useRef(null);
+  const composerRef = useRef(null);
   const inputRef = useRef(null);
   const hasSentInitial = useRef(false);
   const recognitionRef = useRef(null);
@@ -85,7 +86,8 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
 
       const errorMap = {
         'not-allowed': 'Chrome ยังไม่ได้รับสิทธิ์ใช้ไมโครโฟน กรุณาอนุญาตไมโครโฟนแล้วลองใหม่',
-        'service-not-allowed': 'Chrome ยังไม่ได้รับสิทธิ์ใช้ไมโครโฟน กรุณาอนุญาตไมโครโฟนแล้วลองใหม่',
+        'service-not-allowed':
+          'Chrome ยังไม่ได้รับสิทธิ์ใช้ไมโครโฟน กรุณาอนุญาตไมโครโฟนแล้วลองใหม่',
         'audio-capture': 'ไม่พบไมโครโฟน หรือไมโครโฟนยังไม่พร้อมใช้งาน',
         network: 'การพิมพ์ด้วยเสียงมีปัญหาด้านเครือข่าย กรุณาลองใหม่อีกครั้ง',
       };
@@ -108,6 +110,22 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
 
   useEffect(() => {
     inputRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = '0px';
+      inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 120)}px`;
+    }
+  }, [input]);
+
+  useEffect(() => {
+    const handleViewportShift = () => {
+      composerRef.current?.scrollIntoView({ block: 'nearest' });
+    };
+
+    window.visualViewport?.addEventListener('resize', handleViewportShift);
+    return () => window.visualViewport?.removeEventListener('resize', handleViewportShift);
   }, []);
 
   useEffect(() => {
@@ -221,7 +239,7 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
   };
 
   return (
-    <div className="mx-auto flex min-h-[100dvh] max-w-md flex-col overflow-x-hidden bg-[#F6FAFD] sm:h-full">
+    <div className="app-page app-page-transition mx-auto flex max-w-md flex-col overflow-x-hidden bg-[#F6FAFD] sm:h-full">
       <div className="app-safe-top sticky top-0 z-10 border-b border-sky-100 bg-white/95 px-4 pb-4 pt-3 backdrop-blur-md">
         <div className="flex items-start gap-3">
           <button
@@ -248,23 +266,31 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
 
       <div
         ref={scrollContainerRef}
-        className="custom-scrollbar flex-1 overflow-y-auto overflow-x-hidden bg-[#F6FAFD] px-4 pt-4 pb-6"
+        className="app-scroll-region custom-scrollbar flex-1 bg-[#F6FAFD] px-4 pt-4 pb-6"
       >
         {!hasUserMessages && (
-          <div className="mb-4 rounded-[1.75rem] border border-sky-100 bg-white px-4 py-4 shadow-sm">
-            <h3 className="text-base font-black text-slate-900">ลองถามจากหัวข้อใกล้ตัว</h3>
-            <p className="mt-1 text-sm leading-6 text-slate-500">
-              แตะคำถามตัวอย่างได้ทันที หรือพิมพ์คำถามของคุณเองด้านล่าง
-            </p>
+          <div className="animate-fade-up mb-4 rounded-[1.75rem] border border-sky-100 bg-white px-4 py-4 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-indigo-50 p-3 text-indigo-500">
+                <Sparkles size={20} />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900">เริ่มถามได้เลย</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  แตะคำถามตัวอย่าง หรือพิมพ์คำถามสั้น ๆ ที่กังวลอยู่ตอนนี้ได้ทันที
+                </p>
+              </div>
+            </div>
 
             <div className="mt-4 flex flex-wrap gap-2.5">
-              {CHAT_QUICK_PROMPTS.map((prompt) => (
+              {CHAT_QUICK_PROMPTS.map((prompt, index) => (
                 <button
                   key={prompt.label}
                   type="button"
                   onClick={() => handleSend(prompt.text)}
                   disabled={isLoading}
-                  className="touch-target rounded-full border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700 active:scale-[0.98]"
+                  className="touch-target animate-fade-up rounded-full border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700 active:scale-[0.98]"
+                  style={{ animationDelay: `${index * 40}ms` }}
                 >
                   {prompt.label}
                 </button>
@@ -319,12 +345,15 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
         </div>
       </div>
 
-      <div className="app-safe-bottom sticky bottom-0 z-10 border-t border-sky-100 bg-white/96 px-4 pt-3 backdrop-blur-md">
+      <div
+        ref={composerRef}
+        className="app-bottom-docked sticky bottom-0 z-10 border-t border-sky-100 bg-white/96 px-4 pt-3 backdrop-blur-md"
+      >
         <p className="mb-3 text-xs leading-5 text-slate-500">
           คำแนะนำ: พิมพ์เป็นประโยคสั้นและชัดเจน เช่น “ค่าน้ำตาล 180 สูงไหม”
         </p>
 
-        <div className="flex min-w-0 items-stretch gap-3">
+        <div className="flex min-w-0 items-end gap-3">
           <button
             type="button"
             onClick={toggleListening}
@@ -342,10 +371,11 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
           </button>
 
           <div className="min-w-0 flex-1 rounded-2xl border border-sky-100 bg-slate-50 px-4 py-3 shadow-sm">
-            <div className="flex min-w-0 items-center gap-2">
-              <input
+            <div className="flex min-w-0 items-end gap-2">
+              <textarea
                 ref={inputRef}
-                className="min-w-0 flex-1 bg-transparent px-1 py-2.5 text-[15px] font-medium text-slate-700 outline-none placeholder:text-slate-400"
+                rows={1}
+                className="min-w-0 flex-1 bg-transparent px-1 py-2 text-[15px] font-medium text-slate-700 outline-none placeholder:text-slate-400"
                 placeholder={isListening ? 'กำลังฟังเสียงของคุณ...' : 'พิมพ์คำถามที่นี่'}
                 value={input}
                 onChange={(event) => setInput(event.target.value)}

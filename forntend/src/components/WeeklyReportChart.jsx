@@ -32,13 +32,13 @@ function CustomTooltip({ active, payload, label }) {
   if (!(active && payload && payload.length)) return null;
 
   return (
-    <div className="bg-slate-900/95 backdrop-blur-md text-white p-4 rounded-2xl shadow-2xl border border-white/10">
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 border-b border-white/10 pb-1">
+    <div className="rounded-2xl border border-white/10 bg-slate-900/95 p-4 text-white shadow-2xl backdrop-blur-md">
+      <p className="mb-2 border-b border-white/10 pb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
         {label}
       </p>
       {payload.map((entry, index) => (
         <div key={index} className="flex items-center gap-3 py-0.5">
-          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }} />
+          <div className="h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
           <p className="text-sm font-bold">
             {entry.name}:{' '}
             <span className={entry.value > 140 ? 'text-red-400' : 'text-indigo-300'}>

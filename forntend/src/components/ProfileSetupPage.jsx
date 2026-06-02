@@ -37,7 +37,7 @@ export default function ProfileSetupPage({ onSave, onNotice }) {
   };
 
   return (
-    <div className="app-safe-top app-safe-bottom min-h-[100dvh] bg-white sm:h-full">
+    <div className="app-page app-page-transition app-safe-top app-safe-bottom bg-white sm:h-full">
       <div className="border-b border-slate-100 bg-white px-6 pb-5 pt-3">
         <h2 className="text-2xl font-black tracking-tight text-slate-900">ตั้งค่าโปรไฟล์สุขภาพ</h2>
         <p className="mt-2 text-sm leading-6 text-slate-500">
@@ -80,7 +80,10 @@ export default function ProfileSetupPage({ onSave, onNotice }) {
             ระยะของโรค
           </label>
           <div className="relative">
-            <Activity size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Activity
+              size={18}
+              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+            />
             <select
               value={formData.stage}
               onChange={(event) => setFormData((prev) => ({ ...prev, stage: event.target.value }))}
@@ -170,9 +173,15 @@ function Field({ label, icon, type = 'text', tone = 'default', ...props }) {
 
 function TreatmentButton({ active, onClick, label, description, tone }) {
   const toneMap = {
-    blue: active ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-500',
-    orange: active ? 'border-orange-500 bg-orange-500 text-white' : 'border-slate-200 bg-white text-slate-500',
-    emerald: active ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-white text-slate-500',
+    blue: active
+      ? 'border-blue-600 bg-blue-600 text-white'
+      : 'border-slate-200 bg-white text-slate-500',
+    orange: active
+      ? 'border-orange-500 bg-orange-500 text-white'
+      : 'border-slate-200 bg-white text-slate-500',
+    emerald: active
+      ? 'border-emerald-600 bg-emerald-600 text-white'
+      : 'border-slate-200 bg-white text-slate-500',
   };
 
   return (
@@ -183,7 +192,11 @@ function TreatmentButton({ active, onClick, label, description, tone }) {
     >
       <div>
         <p className="text-base">{label}</p>
-        {description && <p className={`mt-1 text-xs font-semibold ${active ? 'text-white/80' : 'text-slate-400'}`}>{description}</p>}
+        {description && (
+          <p className={`mt-1 text-xs font-semibold ${active ? 'text-white/80' : 'text-slate-400'}`}>
+            {description}
+          </p>
+        )}
       </div>
       {active && <CheckCircle2 size={18} />}
     </button>

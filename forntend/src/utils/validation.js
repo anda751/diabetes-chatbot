@@ -32,9 +32,9 @@ export function validatePassword(password) {
 export function validateName(name) {
   const value = normalizeText(name);
 
-  if (!value) return 'กรุณากรอกชื่อ';
-  if (value.length < 2) return 'ชื่อต้องมีอย่างน้อย 2 ตัวอักษร';
-  if (value.length > 80) return 'ชื่อยาวเกินไป กรุณากรอกไม่เกิน 80 ตัวอักษร';
+  if (!value) return 'กรุณากรอกชื่อ-นามสกุล';
+  if (value.length < 2) return 'ชื่อ-นามสกุลต้องมีอย่างน้อย 2 ตัวอักษร';
+  if (value.length > 80) return 'ชื่อ-นามสกุลยาวเกินไป กรุณากรอกไม่เกิน 80 ตัวอักษร';
 
   return '';
 }
@@ -59,7 +59,7 @@ export function validateHeight(height) {
 
 export function validateStage(stage) {
   if (!PROFILE_STAGE_OPTIONS.includes(String(stage))) {
-    return 'กรุณาเลือกระยะโรคให้ถูกต้อง';
+    return 'กรุณาเลือกระยะของโรคให้ถูกต้อง';
   }
 
   return '';

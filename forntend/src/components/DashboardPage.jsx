@@ -20,6 +20,25 @@ import {
 } from 'lucide-react';
 import GlucoseModal from './GlucoseModal';
 
+function loadMealReminders() {
+  try {
+    const saved = localStorage.getItem('meal_reminders');
+    return saved
+      ? JSON.parse(saved)
+      : [
+          { id: 1, label: 'มื้อเช้า', time: '08:00', isDone: false },
+          { id: 2, label: 'มื้อกลางวัน', time: '12:00', isDone: false },
+          { id: 3, label: 'มื้อเย็น', time: '18:00', isDone: false },
+        ];
+  } catch (_error) {
+    return [
+      { id: 1, label: 'มื้อเช้า', time: '08:00', isDone: false },
+      { id: 2, label: 'มื้อกลางวัน', time: '12:00', isDone: false },
+      { id: 3, label: 'มื้อเย็น', time: '18:00', isDone: false },
+    ];
+  }
+}
+
 export default function DashboardPage({
   onSelectChat,
   onSelectReport,
@@ -37,16 +56,7 @@ export default function DashboardPage({
   onNotice,
 }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [reminders, setReminders] = useState(() => {
-    const saved = localStorage.getItem('meal_reminders');
-    return saved
-      ? JSON.parse(saved)
-      : [
-          { id: 1, label: 'มื้อเช้า', time: '08:00', isDone: false },
-          { id: 2, label: 'มื้อกลางวัน', time: '12:00', isDone: false },
-          { id: 3, label: 'มื้อเย็น', time: '18:00', isDone: false },
-        ];
-  });
+  const [reminders, setReminders] = useState(loadMealReminders);
   const [isSettingReminders, setIsSettingReminders] = useState(false);
 
   useEffect(() => {
@@ -111,7 +121,7 @@ export default function DashboardPage({
   };
 
   return (
-    <div className="mx-auto flex min-h-[100dvh] max-w-md flex-col bg-slate-50 sm:h-full">
+    <div className="app-page app-page-transition flex flex-col bg-slate-50 sm:h-full">
       <div className="app-safe-top rounded-b-[2.5rem] border-b border-slate-100 bg-[linear-gradient(180deg,#ffffff_0%,#f7fbff_100%)] px-5 pb-6 pt-4 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -159,7 +169,9 @@ export default function DashboardPage({
             value={`ระยะ ${stage || '1'}`}
             tone="emerald"
             action={
-              <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-black ${treatmentStyle.card}`}>
+              <div
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-black ${treatmentStyle.card}`}
+              >
                 <ShieldPlus size={13} />
                 {treatmentStyle.label}
               </div>
@@ -168,7 +180,7 @@ export default function DashboardPage({
         </div>
       </div>
 
-      <div className="flex-1 space-y-5 px-5 py-5">
+      <div className="app-scroll-region custom-scrollbar flex-1 space-y-5 px-5 py-5">
         <SectionCard>
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -194,28 +206,30 @@ export default function DashboardPage({
             </button>
           </div>
 
-          <div className="mt-5 flex items-end justify-between gap-4">
-            <div className="flex items-end gap-3">
-              <ValueChip label="ก่อนอาหาร" color="blue" value={beforeGlucose} />
-              <span className="mb-1 text-4xl font-light text-slate-300">/</span>
-              <ValueChip label="หลังอาหาร" color="orange" value={afterGlucose} />
-            </div>
+          {hasGlucoseData ? (
+            <div className="mt-5 flex items-end justify-between gap-4">
+              <div className="flex items-end gap-3">
+                <ValueChip label="ก่อนอาหาร" color="blue" value={beforeGlucose} />
+                <span className="mb-1 text-4xl font-light text-slate-300">/</span>
+                <ValueChip label="หลังอาหาร" color="orange" value={afterGlucose} />
+              </div>
 
-            <div className="text-right">
-              <p className="text-sm font-black text-slate-500">mg/dL</p>
-              {glucoseStatus ? (
-                <span className={`mt-2 inline-flex rounded-full px-3 py-1.5 text-xs font-black ${glucoseStatus.tone}`}>
-                  {glucoseStatus.label}
-                </span>
-              ) : (
-                <span className="mt-2 inline-flex rounded-full bg-slate-100 px-3 py-1.5 text-xs font-black text-slate-400">
-                  รอบันทึกข้อมูล
-                </span>
-              )}
-              <p className="mt-3 text-xs font-bold text-slate-400">{lastGlucose?.time || '--:--'}</p>
-              <p className="text-xs text-slate-300">{lastGlucose?.date || 'วัน/เดือน/ปี'}</p>
+              <div className="text-right">
+                <p className="text-sm font-black text-slate-500">mg/dL</p>
+                {glucoseStatus ? (
+                  <span className={`mt-2 inline-flex rounded-full px-3 py-1.5 text-xs font-black ${glucoseStatus.tone}`}>
+                    {glucoseStatus.label}
+                  </span>
+                ) : null}
+                <p className="mt-3 text-xs font-bold text-slate-400">{lastGlucose?.time || '--:--'}</p>
+                <p className="text-xs text-slate-300">{lastGlucose?.date || 'วัน/เดือน/ปี'}</p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="mt-5 rounded-[1.5rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-sm leading-6 text-slate-500">
+              เมื่อเริ่มบันทึกค่าน้ำตาล ระบบจะสรุปก่อนอาหารและหลังอาหารให้ดูง่ายขึ้นในหน้านี้
+            </div>
+          )}
         </SectionCard>
 
         <SectionCard>
@@ -291,7 +305,7 @@ export default function DashboardPage({
                 </div>
 
                 {!isSettingReminders && !item.isDone && (
-                  <div className="h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse" />
+                  <div className="animate-soft-pulse h-2.5 w-2.5 rounded-full bg-amber-400" />
                 )}
               </div>
             ))}

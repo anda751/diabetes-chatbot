@@ -33,11 +33,11 @@ export default function GlucoseModal({ isOpen, onClose, onSave, onNotice }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center">
       <div
-        className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity animate-in fade-in duration-300"
+        className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"
         onClick={onClose}
       />
 
-      <div className="relative z-10 w-full max-w-[380px] rounded-[2.25rem] bg-white p-6 shadow-[0_20px_50px_rgba(0,0,0,0.3)] animate-in zoom-in-95 slide-in-from-bottom-10 duration-300">
+      <div className="animate-slide-up relative z-10 w-full max-w-[380px] rounded-[2.25rem] bg-white p-6 shadow-[0_20px_50px_rgba(0,0,0,0.3)]">
         <button
           onClick={onClose}
           className="touch-target absolute right-4 top-4 inline-flex items-center justify-center rounded-2xl text-slate-300 transition hover:bg-slate-50 hover:text-slate-600"

@@ -18,7 +18,8 @@ export default function AppDialog({
   return (
     <div className="fixed inset-0 z-[200] flex items-end justify-center p-4 sm:items-center">
       <div className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm" onClick={onCancel} />
-      <div className="relative w-full max-w-sm rounded-[2rem] bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.28)] animate-in zoom-in-95 duration-200">
+
+      <div className="animate-slide-up relative w-full max-w-sm rounded-[2rem] bg-white p-6 shadow-[0_20px_50px_rgba(15,23,42,0.28)]">
         <div className="flex items-start gap-4">
           <div
             className={`mt-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${
@@ -27,6 +28,7 @@ export default function AppDialog({
           >
             {isConfirm ? <AlertCircle size={24} /> : <CheckCircle2 size={24} />}
           </div>
+
           <div className="flex-1">
             <h3 className="text-lg font-black text-slate-900">{title}</h3>
             <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-500">{message}</p>
@@ -42,6 +44,7 @@ export default function AppDialog({
               {cancelText}
             </button>
           )}
+
           <button
             onClick={onConfirm}
             className={`touch-target rounded-2xl px-4 py-3 text-sm font-black text-white transition ${

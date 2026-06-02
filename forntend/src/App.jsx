@@ -1,9 +1,9 @@
 import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
-import LoginPage from './components/LoginPage';
-import RegisterPage from './components/RegisterPage';
-import ProfileSetupPage from './components/ProfileSetupPage';
 import AppDialog from './components/AppDialog';
+import LoginPage from './components/LoginPage';
+import ProfileSetupPage from './components/ProfileSetupPage';
+import RegisterPage from './components/RegisterPage';
 import { API_URL } from './config';
 import {
   validateChatMessage,
@@ -16,6 +16,17 @@ import {
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
 const DEFAULT_SCREEN = 'login';
+const APP_SCREENS = [
+  'login',
+  'register',
+  'profile',
+  'dashboard',
+  'category_detail',
+  'chat',
+  'edit_profile',
+  'report',
+];
+
 const DashboardPage = lazy(() => import('./components/DashboardPage'));
 const ChatBotPage = lazy(() => import('./components/ChatBotPage'));
 const WeeklyReportPage = lazy(() => import('./components/WeeklyReportPage'));
@@ -23,15 +34,35 @@ const EditProfilePage = lazy(() => import('./components/EditProfilePage'));
 const CategoryDetailPage = lazy(() => import('./components/CategoryDetailPage'));
 
 const buildAppUrl = (screen) => {
-  if (typeof window === 'undefined') {
-    return '/';
-  }
-
+  if (typeof window === 'undefined') return '/';
   return `${window.location.pathname}#/${screen || DEFAULT_SCREEN}`;
 };
 
-function App() {
-  const [currentScreen, setCurrentScreen] = useState('login');
+function EmptyScreen({ title, message }) {
+  return (
+    <div className="flex min-h-[60dvh] items-center justify-center px-6">
+      <div className="max-w-xs text-center">
+        <div className="mx-auto mb-4 h-14 w-14 rounded-3xl bg-slate-100" />
+        <h3 className="text-lg font-black text-slate-900">{title}</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-500">{message}</p>
+      </div>
+    </div>
+  );
+}
+
+function ScreenLoader({ label }) {
+  return (
+    <div className="flex min-h-[40dvh] items-center justify-center px-6">
+      <div className="space-y-3 text-center">
+        <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-indigo-100 border-t-indigo-600" />
+        <p className="text-sm font-bold text-slate-500">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const [currentScreen, setCurrentScreen] = useState(DEFAULT_SCREEN);
   const [userData, setUserData] = useState(null);
   const [glucoseHistory, setGlucoseHistory] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -47,7 +78,9 @@ function App() {
     cancelText: 'ยกเลิก',
     onConfirm: null,
   });
+
   const historyIndexRef = useRef(0);
+  const toastTimerRef = useRef(null);
 
   const closeDialog = useCallback(() => {
     setDialogState((prev) => ({ ...prev, isOpen: false }));
@@ -60,9 +93,7 @@ function App() {
   }, []);
 
   const updateBrowserHistory = useCallback((screen, options = {}, mode = 'push') => {
-    if (typeof window === 'undefined') {
-      return;
-    }
+    if (typeof window === 'undefined') return;
 
     const nextIndex =
       mode === 'replace'
@@ -122,7 +153,13 @@ function App() {
   }, []);
 
   const showConfirm = useCallback(
-    ({ title = 'ยืนยันการทำรายการ', message, confirmText = 'ยืนยัน', cancelText = 'ยกเลิก', onConfirm }) => {
+    ({
+      title = 'ยืนยันการทำรายการ',
+      message,
+      confirmText = 'ยืนยัน',
+      cancelText = 'ยกเลิก',
+      onConfirm,
+    }) => {
       setDialogState({
         isOpen: true,
         title,
@@ -143,6 +180,40 @@ function App() {
       action();
     }
   }, [closeDialog, dialogState.onConfirm]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const syncViewport = () => {
+      const viewport = window.visualViewport;
+      const height = viewport?.height || window.innerHeight;
+      const offsetTop = viewport?.offsetTop || 0;
+      const keyboardOffset = Math.max(0, window.innerHeight - height - offsetTop);
+
+      document.documentElement.style.setProperty('--app-vh', `${height}px`);
+      document.documentElement.style.setProperty('--keyboard-offset', `${keyboardOffset}px`);
+    };
+
+    syncViewport();
+    window.addEventListener('resize', syncViewport);
+    window.visualViewport?.addEventListener('resize', syncViewport);
+    window.visualViewport?.addEventListener('scroll', syncViewport);
+
+    return () => {
+      window.removeEventListener('resize', syncViewport);
+      window.visualViewport?.removeEventListener('resize', syncViewport);
+      window.visualViewport?.removeEventListener('scroll', syncViewport);
+    };
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    },
+    []
+  );
 
   const fetchGlucoseHistory = useCallback(async () => {
     try {
@@ -200,9 +271,7 @@ function App() {
   }, [checkSession]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return undefined;
-    }
+    if (typeof window === 'undefined') return undefined;
 
     const initialState = window.history.state;
     if (initialState?.appScreen) {
@@ -259,7 +328,7 @@ function App() {
       setUserData(data.user);
       navigateToScreen(data.user.weight ? 'dashboard' : 'profile', { replace: true });
       await fetchGlucoseHistory();
-    } catch (error) {
+    } catch (_error) {
       showAlert({
         title: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ',
         message: 'การเชื่อมต่อเซิร์ฟเวอร์ขัดข้อง กรุณาลองใหม่อีกครั้ง',
@@ -270,7 +339,7 @@ function App() {
   const handleLogout = () => {
     showConfirm({
       title: 'ออกจากระบบ',
-      message: 'คุณต้องการออกจากระบบใช่หรือไม่?',
+      message: 'คุณต้องการออกจากระบบใช่หรือไม่',
       confirmText: 'ออกจากระบบ',
       onConfirm: async () => {
         try {
@@ -319,7 +388,10 @@ function App() {
 
     setGlucoseHistory((prev) => [newData, ...prev]);
     setShowToast(true);
-    setTimeout(() => setShowToast(false), 3000);
+    if (toastTimerRef.current) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => setShowToast(false), 2800);
 
     try {
       const response = await fetch(`${API_URL}/glucose`, {
@@ -385,7 +457,7 @@ function App() {
 
       setUserData(responseData.user);
       navigateToScreen('dashboard', { replace: true });
-    } catch (error) {
+    } catch (_error) {
       showAlert({
         title: 'เชื่อมต่อไม่สำเร็จ',
         message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง',
@@ -417,47 +489,35 @@ function App() {
   };
 
   const isAppReady = !isCheckingSession;
-  const screenLoader = (
-    <div className="min-h-[40dvh] flex items-center justify-center px-6">
-      <div className="text-center space-y-3">
-        <div className="mx-auto w-10 h-10 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin"></div>
-        <p className="text-sm font-bold text-slate-500">กำลังเปิดหน้าถัดไป...</p>
-      </div>
-    </div>
-  );
 
   return (
-    <div className="app-shell flex items-start sm:items-center justify-center font-sans overflow-x-hidden">
+    <div className="app-shell flex items-start justify-center overflow-x-hidden font-sans sm:items-center">
       <div
         className="
           app-surface relative w-full
           sm:h-[896px]
           sm:max-h-[92vh]
-          sm:shadow-[0_25px_70px_rgba(15,23,42,0.18)]
           sm:rounded-[3rem]
           sm:border-[10px] sm:border-slate-900
           overflow-hidden transition-all duration-300
         "
       >
-        <div className="hidden sm:block absolute top-0 left-1/2 -translate-x-1/2 w-36 h-7 bg-slate-900 rounded-b-3xl z-[100]"></div>
+        <div className="absolute left-1/2 top-0 z-[100] hidden h-7 w-36 -translate-x-1/2 rounded-b-3xl bg-slate-900 sm:block" />
 
         {showToast && (
-          <div className="absolute top-[max(1rem,env(safe-area-inset-top))] left-0 right-0 px-4 sm:px-6 z-[110] animate-in slide-in-from-top duration-500">
-            <div className="bg-emerald-500/95 backdrop-blur-md text-white px-5 py-3 rounded-2xl shadow-xl flex items-center justify-center gap-3 border border-emerald-400">
+          <div className="absolute left-0 right-0 top-[max(1rem,env(safe-area-inset-top))] z-[110] px-4 sm:px-6">
+            <div className="animate-fade-up flex items-center justify-center gap-3 rounded-2xl border border-emerald-400 bg-emerald-500/95 px-5 py-3 text-white shadow-xl backdrop-blur-md">
               <CheckCircle2 size={18} />
-              <span className="font-black text-sm tracking-tight">บันทึกข้อมูลเรียบร้อย</span>
+              <span className="text-sm font-black tracking-tight">บันทึกข้อมูลเรียบร้อย</span>
             </div>
           </div>
         )}
 
-        <div className="app-screen w-full min-h-[100dvh] sm:h-full flex flex-col relative bg-white">
-          <div className="flex-1 min-h-0 overflow-visible custom-scrollbar touch-pan-y">
+        <div className="app-screen relative flex w-full flex-col">
+          <div className="custom-scrollbar flex-1 min-h-0 overflow-visible touch-pan-y">
             {!isAppReady && (
-              <div className="min-h-[100dvh] flex items-center justify-center bg-white">
-                <div className="text-center space-y-3">
-                  <div className="mx-auto w-12 h-12 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin"></div>
-                  <p className="text-sm font-bold text-slate-500">กำลังตรวจสอบการเข้าสู่ระบบ...</p>
-                </div>
+              <div className="flex min-h-[var(--app-vh)] items-center justify-center bg-white">
+                <ScreenLoader label="กำลังตรวจสอบการเข้าสู่ระบบ..." />
               </div>
             )}
 
@@ -478,7 +538,7 @@ function App() {
             )}
 
             {isAppReady && currentScreen === 'dashboard' && (
-              <Suspense fallback={screenLoader}>
+              <Suspense fallback={<ScreenLoader label="กำลังเปิดหน้าหลัก..." />}>
                 <DashboardPage
                   userName={userData?.name}
                   bmi={userData?.bmi}
@@ -494,16 +554,14 @@ function App() {
                   onLogout={handleLogout}
                   onNotice={showAlert}
                   onSelectChat={(category) =>
-                    category
-                      ? navigateToScreen('category_detail', { category })
-                      : navigateToChat('')
+                    category ? navigateToScreen('category_detail', { category }) : navigateToChat('')
                   }
                 />
               </Suspense>
             )}
 
             {isAppReady && currentScreen === 'category_detail' && (
-              <Suspense fallback={screenLoader}>
+              <Suspense fallback={<ScreenLoader label="กำลังเปิดหมวดคำแนะนำ..." />}>
                 <CategoryDetailPage
                   category={selectedCategory}
                   userData={userData}
@@ -514,7 +572,7 @@ function App() {
             )}
 
             {isAppReady && currentScreen === 'chat' && (
-              <Suspense fallback={screenLoader}>
+              <Suspense fallback={<ScreenLoader label="กำลังเปิดหน้าคุยกับหมอ AI..." />}>
                 <ChatBotPage
                   onBack={() => goBackInApp('dashboard')}
                   userData={{ ...userData, lastGlucose: glucoseHistory[0] }}
@@ -525,7 +583,7 @@ function App() {
             )}
 
             {isAppReady && currentScreen === 'edit_profile' && (
-              <Suspense fallback={screenLoader}>
+              <Suspense fallback={<ScreenLoader label="กำลังเปิดหน้าแก้ไขข้อมูล..." />}>
                 <EditProfilePage
                   initialData={userData}
                   onSave={handleSaveData}
@@ -536,13 +594,20 @@ function App() {
             )}
 
             {isAppReady && currentScreen === 'report' && (
-              <Suspense fallback={screenLoader}>
+              <Suspense fallback={<ScreenLoader label="กำลังโหลดรายงานสุขภาพ..." />}>
                 <WeeklyReportPage
                   onBack={() => goBackInApp('dashboard')}
                   glucoseHistory={glucoseHistory}
                   onConsultAI={navigateToChat}
                 />
               </Suspense>
+            )}
+
+            {isAppReady && !APP_SCREENS.includes(currentScreen) && (
+              <EmptyScreen
+                title="ไม่พบหน้าที่ต้องการ"
+                message="กรุณาย้อนกลับไปหน้าก่อนหน้า หรือลองเข้าสู่ระบบใหม่อีกครั้ง"
+              />
             )}
           </div>
         </div>
@@ -558,15 +623,6 @@ function App() {
         onConfirm={handleDialogConfirm}
         onCancel={closeDialog}
       />
-
-      <style>
-        {`
-          .custom-scrollbar::-webkit-scrollbar { width: 0px; display: none; }
-          .custom-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        `}
-      </style>
     </div>
   );
 }
-
-export default App;

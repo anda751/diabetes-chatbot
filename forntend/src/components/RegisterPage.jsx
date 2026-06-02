@@ -52,7 +52,7 @@ export default function RegisterPage({ onBack, onRegisterSuccess, onNotice }) {
   };
 
   return (
-    <div className="app-safe-top app-safe-bottom flex min-h-[100dvh] flex-col bg-white px-6 py-6 sm:h-full sm:px-8">
+    <div className="app-page app-page-transition app-safe-top app-safe-bottom flex flex-col bg-white px-6 py-6 sm:h-full sm:px-8">
       <button
         type="button"
         onClick={onBack}
@@ -63,7 +63,7 @@ export default function RegisterPage({ onBack, onRegisterSuccess, onNotice }) {
         กลับ
       </button>
 
-      <div className="mt-6 mb-8 text-center">
+      <div className="mb-8 mt-6 text-center">
         <div className="mx-auto mb-5 flex h-18 w-18 items-center justify-center rounded-[1.75rem] bg-indigo-600 text-white shadow-xl shadow-indigo-100">
           <UserCircle size={34} />
         </div>
@@ -79,7 +79,9 @@ export default function RegisterPage({ onBack, onRegisterSuccess, onNotice }) {
           icon={<User size={20} />}
           placeholder="กรอกชื่อผู้ใช้งาน"
           value={formData.username}
-          onChange={(event) => setFormData((prev) => ({ ...prev, username: event.target.value.trim() }))}
+          onChange={(event) =>
+            setFormData((prev) => ({ ...prev, username: event.target.value.trim() }))
+          }
           autoComplete="username"
         />
 

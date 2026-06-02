@@ -14,17 +14,18 @@ export default function LoginPage({ onLogin, onGoToRegister }) {
   };
 
   return (
-    <div className="app-safe-top app-safe-bottom relative flex min-h-[100dvh] flex-col justify-center overflow-hidden bg-white px-6 py-8 sm:h-full sm:px-8">
+    <div className="app-page app-page-transition app-safe-top app-safe-bottom relative flex flex-col justify-center overflow-hidden bg-white px-6 py-8 sm:h-full sm:px-8">
       <div className="absolute -top-16 -right-16 h-64 w-64 rounded-full bg-indigo-50 opacity-60 blur-3xl" />
       <div className="absolute -bottom-20 -left-20 h-48 w-48 rounded-full bg-sky-50 opacity-70 blur-3xl" />
 
       <div className="relative z-10 mb-10 text-center">
         <div className="relative mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-[2rem] bg-indigo-600 text-white shadow-2xl shadow-indigo-200 ring-8 ring-indigo-50">
           <Sparkles size={34} className="fill-indigo-200" />
-          <div className="absolute -right-1 -bottom-1 rounded-full border border-slate-50 bg-white p-1.5 shadow-md">
+          <div className="absolute -bottom-1 -right-1 rounded-full border border-slate-50 bg-white p-1.5 shadow-md">
             <ShieldCheck size={16} className="text-emerald-500" />
           </div>
         </div>
+
         <h1 className="text-4xl font-black tracking-tight text-slate-900">ยินดีต้อนรับ</h1>
         <p className="mt-2 text-xs font-black uppercase tracking-[0.28em] text-slate-400">
           Diabetes Care AI

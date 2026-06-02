@@ -6,6 +6,14 @@ import ProfileSetupPage from './components/ProfileSetupPage';
 import RegisterPage from './components/RegisterPage';
 import { API_URL } from './config';
 import {
+  clearNativeMealReminders,
+  ensureNativeReminderNotificationsReady,
+  isNativeAndroidApp,
+  openExactAlarmSettings,
+  scheduleNativeReminderTestNotification,
+  syncNativeMealReminders,
+} from './utils/nativeNotifications';
+import {
   validateChatMessage,
   validateGlucosePhase,
   validateGlucoseValue,
@@ -19,7 +27,6 @@ const DEFAULT_SCREEN = 'login';
 const REMINDER_STORAGE_KEY = 'meal_reminders';
 const REMINDER_ALERTS_KEY = 'meal_reminder_alerts';
 const PUSH_ENDPOINT_STORAGE_KEY = 'push_subscription_endpoint';
-const INSTALL_ONBOARDING_DISMISSED_KEY = 'install_app_onboarding_dismissed';
 const APP_SCREENS = [
   'login',
   'register',
@@ -106,6 +113,8 @@ function urlBase64ToUint8Array(base64String) {
   return outputArray;
 }
 
+const IS_NATIVE_ANDROID = isNativeAndroidApp();
+
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState(DEFAULT_SCREEN);
   const [userData, setUserData] = useState(null);
@@ -117,15 +126,6 @@ export default function App() {
   const [showToast, setShowToast] = useState(false);
   const [reminderToast, setReminderToast] = useState(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
-  const [installPromptEvent, setInstallPromptEvent] = useState(null);
-  const [isStandaloneMode, setIsStandaloneMode] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
-  });
-  const [isInstallOnboardingDismissed, setIsInstallOnboardingDismissed] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(INSTALL_ONBOARDING_DISMISSED_KEY) === 'true';
-  });
   const [notificationPermission, setNotificationPermission] = useState(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
     return window.Notification.permission;
@@ -146,9 +146,6 @@ export default function App() {
   const reminderDialogRef = useRef('');
   const reminderSyncTimerRef = useRef(null);
   const pushSubscriptionRef = useRef(null);
-
-  const canInstallApp = Boolean(installPromptEvent) && !isStandaloneMode;
-  const showInstallOnboarding = !isStandaloneMode && !isInstallOnboardingDismissed;
 
   const closeDialog = useCallback(() => {
     setDialogState((prev) => ({ ...prev, isOpen: false }));
@@ -322,6 +319,10 @@ export default function App() {
   }, []);
 
   const registerPushSubscription = useCallback(async () => {
+    if (IS_NATIVE_ANDROID) {
+      return false;
+    }
+
     if (
       typeof window === 'undefined' ||
       !('serviceWorker' in navigator) ||
@@ -410,10 +411,53 @@ export default function App() {
   }, [userData]);
 
   const requestNotificationPermission = useCallback(async () => {
+    if (IS_NATIVE_ANDROID) {
+      try {
+        const status = await ensureNativeReminderNotificationsReady();
+        setNotificationPermission(status.granted ? 'granted' : 'denied');
+
+        if (!status.granted) {
+          showAlert({
+            title: 'ยังไม่ได้เปิดการแจ้งเตือน',
+            message: 'กรุณาอนุญาตการแจ้งเตือนของแอปก่อน แล้วระบบจะเตือนตามเวลามื้ออาหารที่ตั้งไว้ให้อัตโนมัติ',
+          });
+          return false;
+        }
+
+        if (!status.exactGranted) {
+          showAlert({
+            title: 'ตั้งค่าแจ้งเตือนได้แล้ว',
+            message:
+              'เปิดสิทธิ์แจ้งเตือนเรียบร้อยแล้ว หากต้องการให้เตือนตรงเวลามากขึ้น กรุณาเปิดการตั้งค่า Exact alarms ของแอปในหน้าถัดไปค่ะ',
+          });
+          try {
+            await openExactAlarmSettings();
+          } catch (error) {
+            console.error('Open exact alarm settings error:', error);
+          }
+        }
+
+        playReminderSound();
+        try {
+          await scheduleNativeReminderTestNotification();
+        } catch (error) {
+          console.error('Schedule native reminder test error:', error);
+        }
+        return true;
+      } catch (error) {
+        console.error('Native notification permission error:', error);
+        showAlert({
+          title: 'เปิดการแจ้งเตือนไม่สำเร็จ',
+          message: 'ยังไม่สามารถตั้งค่าการแจ้งเตือนของแอปได้ในขณะนี้ กรุณาลองใหม่อีกครั้งค่ะ',
+        });
+        return false;
+      }
+    }
+
     if (typeof window === 'undefined' || !('Notification' in window)) {
       showAlert({
         title: 'อุปกรณ์นี้ยังไม่รองรับ',
-        message: 'เบราว์เซอร์นี้ยังไม่รองรับการแจ้งเตือนจากเว็บแอป',
+        message: 'อุปกรณ์หรือเบราว์เซอร์นี้ยังไม่รองรับการแจ้งเตือนจากเว็บแอป',
       });
       return false;
     }
@@ -434,7 +478,7 @@ export default function App() {
     if (permission !== 'granted') {
       showAlert({
         title: 'ยังไม่ได้เปิดการแจ้งเตือน',
-        message: 'กรุณาอนุญาตการแจ้งเตือนในเบราว์เซอร์ เพื่อให้ระบบเตือนเวลาอาหารได้',
+        message: 'กรุณาอนุญาตการแจ้งเตือนในเบราว์เซอร์ก่อน แล้วระบบจะเตือนตามเวลามื้ออาหารที่ตั้งไว้ให้ค่ะ',
       });
       return false;
     }
@@ -446,51 +490,11 @@ export default function App() {
       console.error('Push subscription error:', error);
       showAlert({
         title: 'เปิดการแจ้งเตือนแล้ว',
-        message: 'ระบบอนุญาตการแจ้งเตือนแล้ว แต่ยังผูกอุปกรณ์ไม่สำเร็จ ลองกดใหม่อีกครั้งได้ค่ะ',
+        message: 'อนุญาตการแจ้งเตือนแล้ว แต่ยังเชื่อมอุปกรณ์ไม่สำเร็จ ลองกดอีกครั้งได้ค่ะ',
       });
     }
     return true;
   }, [playReminderSound, registerPushSubscription, showAlert]);
-
-  const handleInstallApp = useCallback(async () => {
-    if (isStandaloneMode) {
-      showAlert({
-        title: 'ติดตั้งแอปแล้ว',
-        message: 'แอปนี้ถูกเพิ่มไว้บนหน้าจอหลักแล้ว สามารถเปิดใช้งานเหมือนแอปได้เลยค่ะ',
-      });
-      return false;
-    }
-
-    if (installPromptEvent) {
-      installPromptEvent.prompt();
-      const choiceResult = await installPromptEvent.userChoice;
-      setInstallPromptEvent(null);
-
-      if (choiceResult?.outcome === 'accepted') {
-        showAlert({
-          title: 'เริ่มติดตั้งแอปแล้ว',
-          message: 'เมื่อเสร็จแล้ว คุณสามารถเปิด Today Care จากหน้าจอหลักได้เลยค่ะ',
-        });
-        return true;
-      }
-
-      return false;
-    }
-
-    showAlert({
-      title: 'ติดตั้งแอปบนมือถือ',
-      message:
-        'ถ้าใช้ iPhone ให้กดปุ่มแชร์ของ Safari แล้วเลือก “เพิ่มไปยังหน้าจอโฮม” ส่วน Android ให้เปิดเมนูเบราว์เซอร์แล้วเลือก “ติดตั้งแอป” หรือ “Add to Home screen” ค่ะ',
-    });
-    return false;
-  }, [installPromptEvent, isStandaloneMode, showAlert]);
-
-  const dismissInstallOnboarding = useCallback(() => {
-    setIsInstallOnboardingDismissed(true);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(INSTALL_ONBOARDING_DISMISSED_KEY, 'true');
-    }
-  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
@@ -518,42 +522,17 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return undefined;
+    if (IS_NATIVE_ANDROID) {
+      ensureNativeReminderNotificationsReady()
+        .then((status) => {
+          setNotificationPermission(status.granted ? 'granted' : 'default');
+        })
+        .catch((error) => {
+          console.error('Initial native notification check error:', error);
+        });
+      return undefined;
+    }
 
-    const mediaQuery = window.matchMedia?.('(display-mode: standalone)');
-    const syncStandaloneMode = () => {
-      setIsStandaloneMode(
-        mediaQuery?.matches || window.navigator.standalone === true
-      );
-    };
-
-    const handleBeforeInstallPrompt = (event) => {
-      event.preventDefault();
-      setInstallPromptEvent(event);
-    };
-
-    const handleInstalled = () => {
-      setInstallPromptEvent(null);
-      setIsInstallOnboardingDismissed(true);
-      if (typeof window !== 'undefined') {
-        window.localStorage.setItem(INSTALL_ONBOARDING_DISMISSED_KEY, 'true');
-      }
-      syncStandaloneMode();
-    };
-
-    syncStandaloneMode();
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('appinstalled', handleInstalled);
-    mediaQuery?.addEventListener?.('change', syncStandaloneMode);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleInstalled);
-      mediaQuery?.removeEventListener?.('change', syncStandaloneMode);
-    };
-  }, []);
-
-  useEffect(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return undefined;
 
     const syncPermission = () => {
@@ -567,6 +546,10 @@ export default function App() {
 
   useEffect(() => {
     if (!userData || notificationPermission !== 'granted') return;
+
+    if (IS_NATIVE_ANDROID) {
+      return;
+    }
 
     registerPushSubscription().catch((error) => {
       console.error('Push subscription sync error:', error);
@@ -590,6 +573,7 @@ export default function App() {
 
   useEffect(() => {
     if (typeof window === 'undefined' || !userData) return undefined;
+    if (IS_NATIVE_ANDROID) return undefined;
 
     const triggerReminder = (reminder) => {
       const now = new Date();
@@ -670,6 +654,16 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [playReminderSound, reminders, showAlert, userData]);
 
+  useEffect(() => {
+    if (!IS_NATIVE_ANDROID || !userData) return undefined;
+
+    syncNativeMealReminders(reminders).catch((error) => {
+      console.error('Sync native meal reminders error:', error);
+    });
+
+    return undefined;
+  }, [reminders, userData]);
+
   const fetchGlucoseHistory = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/glucose`, {
@@ -744,7 +738,14 @@ export default function App() {
       navigateToScreen(data.user.weight ? 'dashboard' : 'profile', { replace: true });
       await fetchReminders();
       await fetchGlucoseHistory();
-      if (typeof window !== 'undefined' && window.Notification?.permission === 'granted') {
+      if (IS_NATIVE_ANDROID) {
+        try {
+          const status = await ensureNativeReminderNotificationsReady();
+          setNotificationPermission(status.granted ? 'granted' : 'default');
+        } catch (error) {
+          console.error('Native notification sync error:', error);
+        }
+      } else if (typeof window !== 'undefined' && window.Notification?.permission === 'granted') {
         try {
           await registerPushSubscription();
         } catch (error) {
@@ -822,7 +823,14 @@ export default function App() {
       navigateToScreen(data.user.weight ? 'dashboard' : 'profile', { replace: true });
       await fetchReminders();
       await fetchGlucoseHistory();
-      if (typeof window !== 'undefined' && window.Notification?.permission === 'granted') {
+      if (IS_NATIVE_ANDROID) {
+        try {
+          const status = await ensureNativeReminderNotificationsReady();
+          setNotificationPermission(status.granted ? 'granted' : 'default');
+        } catch (error) {
+          console.error('Native notification sync error:', error);
+        }
+      } else if (typeof window !== 'undefined' && window.Notification?.permission === 'granted') {
         try {
           await registerPushSubscription();
         } catch (error) {
@@ -857,6 +865,13 @@ export default function App() {
         } catch (error) {
           console.error('Logout error:', error);
         } finally {
+          if (IS_NATIVE_ANDROID) {
+            try {
+              await clearNativeMealReminders();
+            } catch (nativeError) {
+              console.error('Clear native reminders error:', nativeError);
+            }
+          }
           setUserData(null);
           setGlucoseHistory([]);
           setReminders(loadMealRemindersFromStorage());
@@ -1083,11 +1098,6 @@ export default function App() {
                   onNotice={showAlert}
                   notificationPermission={notificationPermission}
                   onEnableNotifications={requestNotificationPermission}
-                  canInstallApp={canInstallApp}
-                  isStandaloneMode={isStandaloneMode}
-                  showInstallOnboarding={showInstallOnboarding}
-                  onDismissInstallOnboarding={dismissInstallOnboarding}
-                  onInstallApp={handleInstallApp}
                   initialReminders={reminders}
                   onRemindersChange={syncRemindersToBackend}
                   reminderSyncState={reminderSyncState}

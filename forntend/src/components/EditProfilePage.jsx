@@ -38,8 +38,8 @@ export default function EditProfilePage({ onSave, onCancel, initialData, onNotic
   };
 
   return (
-    <div className="app-page app-page-transition app-safe-top app-safe-bottom bg-white sm:h-full">
-      <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur-md">
+    <div className="app-page app-page-transition flex flex-col bg-white sm:h-full">
+      <div className="app-safe-top sticky top-0 z-10 flex items-center gap-3 border-b border-slate-100 bg-white/95 px-5 py-4 backdrop-blur-md">
         <button
           type="button"
           onClick={onCancel}
@@ -56,7 +56,10 @@ export default function EditProfilePage({ onSave, onCancel, initialData, onNotic
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6 px-6 py-6">
+      <form
+        onSubmit={handleSubmit}
+        className="app-scroll-region custom-scrollbar flex-1 space-y-6 px-6 py-6 [padding-bottom:calc(1.5rem+env(safe-area-inset-bottom))]"
+      >
         <Field
           label="ชื่อ-นามสกุล"
           icon={<User size={18} />}

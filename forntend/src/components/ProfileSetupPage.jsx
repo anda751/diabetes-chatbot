@@ -37,15 +37,18 @@ export default function ProfileSetupPage({ onSave, onNotice }) {
   };
 
   return (
-    <div className="app-page app-page-transition app-safe-top app-safe-bottom bg-white sm:h-full">
-      <div className="border-b border-slate-100 bg-white px-6 pb-5 pt-3">
+    <div className="app-page app-page-transition flex flex-col bg-white sm:h-full">
+      <div className="app-safe-top border-b border-slate-100 bg-white px-6 pb-5 pt-3">
         <h2 className="text-2xl font-black tracking-tight text-slate-900">ตั้งค่าโปรไฟล์สุขภาพ</h2>
         <p className="mt-2 text-sm leading-6 text-slate-500">
           ข้อมูลนี้จะช่วยให้ระบบคำนวณและแนะนำการดูแลที่เหมาะกับคุณมากขึ้น
         </p>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6 px-6 py-6">
+      <form
+        onSubmit={handleSubmit}
+        className="app-scroll-region custom-scrollbar flex-1 space-y-6 px-6 py-6 [padding-bottom:calc(1.5rem+env(safe-area-inset-bottom))]"
+      >
         <Field
           label="ชื่อ-นามสกุล"
           icon={<User size={18} />}

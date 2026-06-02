@@ -19,6 +19,7 @@ const DEFAULT_SCREEN = 'login';
 const REMINDER_STORAGE_KEY = 'meal_reminders';
 const REMINDER_ALERTS_KEY = 'meal_reminder_alerts';
 const PUSH_ENDPOINT_STORAGE_KEY = 'push_subscription_endpoint';
+const INSTALL_ONBOARDING_DISMISSED_KEY = 'install_app_onboarding_dismissed';
 const APP_SCREENS = [
   'login',
   'register',
@@ -116,6 +117,15 @@ export default function App() {
   const [showToast, setShowToast] = useState(false);
   const [reminderToast, setReminderToast] = useState(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [installPromptEvent, setInstallPromptEvent] = useState(null);
+  const [isStandaloneMode, setIsStandaloneMode] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  });
+  const [isInstallOnboardingDismissed, setIsInstallOnboardingDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(INSTALL_ONBOARDING_DISMISSED_KEY) === 'true';
+  });
   const [notificationPermission, setNotificationPermission] = useState(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
     return window.Notification.permission;
@@ -136,6 +146,9 @@ export default function App() {
   const reminderDialogRef = useRef('');
   const reminderSyncTimerRef = useRef(null);
   const pushSubscriptionRef = useRef(null);
+
+  const canInstallApp = Boolean(installPromptEvent) && !isStandaloneMode;
+  const showInstallOnboarding = !isStandaloneMode && !isInstallOnboardingDismissed;
 
   const closeDialog = useCallback(() => {
     setDialogState((prev) => ({ ...prev, isOpen: false }));
@@ -439,6 +452,46 @@ export default function App() {
     return true;
   }, [playReminderSound, registerPushSubscription, showAlert]);
 
+  const handleInstallApp = useCallback(async () => {
+    if (isStandaloneMode) {
+      showAlert({
+        title: 'ติดตั้งแอปแล้ว',
+        message: 'แอปนี้ถูกเพิ่มไว้บนหน้าจอหลักแล้ว สามารถเปิดใช้งานเหมือนแอปได้เลยค่ะ',
+      });
+      return false;
+    }
+
+    if (installPromptEvent) {
+      installPromptEvent.prompt();
+      const choiceResult = await installPromptEvent.userChoice;
+      setInstallPromptEvent(null);
+
+      if (choiceResult?.outcome === 'accepted') {
+        showAlert({
+          title: 'เริ่มติดตั้งแอปแล้ว',
+          message: 'เมื่อเสร็จแล้ว คุณสามารถเปิด Today Care จากหน้าจอหลักได้เลยค่ะ',
+        });
+        return true;
+      }
+
+      return false;
+    }
+
+    showAlert({
+      title: 'ติดตั้งแอปบนมือถือ',
+      message:
+        'ถ้าใช้ iPhone ให้กดปุ่มแชร์ของ Safari แล้วเลือก “เพิ่มไปยังหน้าจอโฮม” ส่วน Android ให้เปิดเมนูเบราว์เซอร์แล้วเลือก “ติดตั้งแอป” หรือ “Add to Home screen” ค่ะ',
+    });
+    return false;
+  }, [installPromptEvent, isStandaloneMode, showAlert]);
+
+  const dismissInstallOnboarding = useCallback(() => {
+    setIsInstallOnboardingDismissed(true);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(INSTALL_ONBOARDING_DISMISSED_KEY, 'true');
+    }
+  }, []);
+
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
 
@@ -461,6 +514,42 @@ export default function App() {
       window.removeEventListener('resize', syncViewport);
       window.visualViewport?.removeEventListener('resize', syncViewport);
       window.visualViewport?.removeEventListener('scroll', syncViewport);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const mediaQuery = window.matchMedia?.('(display-mode: standalone)');
+    const syncStandaloneMode = () => {
+      setIsStandaloneMode(
+        mediaQuery?.matches || window.navigator.standalone === true
+      );
+    };
+
+    const handleBeforeInstallPrompt = (event) => {
+      event.preventDefault();
+      setInstallPromptEvent(event);
+    };
+
+    const handleInstalled = () => {
+      setInstallPromptEvent(null);
+      setIsInstallOnboardingDismissed(true);
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(INSTALL_ONBOARDING_DISMISSED_KEY, 'true');
+      }
+      syncStandaloneMode();
+    };
+
+    syncStandaloneMode();
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleInstalled);
+    mediaQuery?.addEventListener?.('change', syncStandaloneMode);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleInstalled);
+      mediaQuery?.removeEventListener?.('change', syncStandaloneMode);
     };
   }, []);
 
@@ -994,6 +1083,11 @@ export default function App() {
                   onNotice={showAlert}
                   notificationPermission={notificationPermission}
                   onEnableNotifications={requestNotificationPermission}
+                  canInstallApp={canInstallApp}
+                  isStandaloneMode={isStandaloneMode}
+                  showInstallOnboarding={showInstallOnboarding}
+                  onDismissInstallOnboarding={dismissInstallOnboarding}
+                  onInstallApp={handleInstallApp}
                   initialReminders={reminders}
                   onRemindersChange={syncRemindersToBackend}
                   reminderSyncState={reminderSyncState}

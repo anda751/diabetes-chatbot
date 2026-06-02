@@ -8,6 +8,7 @@ import {
   Check,
   ChevronRight,
   Clock,
+  Download,
   Droplet,
   Dumbbell,
   LogOut,
@@ -15,6 +16,7 @@ import {
   Plus,
   Settings2,
   ShieldPlus,
+  Smartphone,
   Sparkles,
   TrendingDown,
   User,
@@ -106,6 +108,11 @@ export default function DashboardPage({
   onNotice,
   notificationPermission,
   onEnableNotifications,
+  canInstallApp = false,
+  isStandaloneMode = false,
+  showInstallOnboarding = false,
+  onDismissInstallOnboarding,
+  onInstallApp,
   initialReminders = [],
   onRemindersChange,
   reminderSyncState = 'idle',
@@ -159,7 +166,8 @@ export default function DashboardPage({
     if (notificationPermission === 'granted') {
       return {
         label: 'เปิดการแจ้งเตือนแล้ว',
-        detail: 'ระบบพร้อมแจ้งเตือนมื้ออาหารแม้ไม่ได้ค้างอยู่ในหน้าแอป หากเบราว์เซอร์รองรับ push notification',
+        detail:
+          'ระบบพร้อมแจ้งเตือนมื้ออาหารแม้ไม่ได้ค้างอยู่ในหน้าแอป หากเบราว์เซอร์รองรับ push notification',
         tone: 'bg-emerald-50 border-emerald-100 text-emerald-700',
       };
     }
@@ -224,6 +232,8 @@ export default function DashboardPage({
   }, [lastGlucose]);
 
   const hasGlucoseData = Boolean(lastGlucose);
+  const showStickyInstallCta = !isStandaloneMode && !isSettingReminders;
+  const showInstallSection = isStandaloneMode || !showInstallOnboarding;
 
   const handleCheckMeal = (id) => {
     setReminders((prev) => prev.map((item) => (item.id === id ? { ...item, isDone: true } : item)));
@@ -312,7 +322,97 @@ export default function DashboardPage({
         </div>
       </div>
 
-      <div className="app-scroll-region custom-scrollbar flex-1 space-y-5 px-5 py-5 [padding-bottom:calc(1.25rem+env(safe-area-inset-bottom))]">
+      <div
+        className={`app-scroll-region custom-scrollbar flex-1 space-y-5 px-5 py-5 ${
+          showStickyInstallCta
+            ? '[padding-bottom:calc(8.25rem+env(safe-area-inset-bottom)+var(--keyboard-offset))]'
+            : '[padding-bottom:calc(1.5rem+env(safe-area-inset-bottom)+var(--keyboard-offset))]'
+        }`}
+      >
+        {showInstallOnboarding && (
+          <div className="rounded-[2rem] border border-indigo-100 bg-[linear-gradient(135deg,#eef4ff_0%,#ffffff_100%)] p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl bg-indigo-600 p-3 text-white shadow-lg shadow-indigo-100">
+                  <Smartphone size={22} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-base font-black text-slate-900">ติดตั้งแอปไว้บนหน้าจอหลัก</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-500">
+                    เปิดเร็วขึ้น เต็มจอขึ้น และใช้งานใกล้เคียงแอปมากกว่าเดิม โดยเฉพาะเวลารับแจ้งเตือนค่ะ
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onDismissInstallOnboarding}
+                className="touch-target rounded-xl p-2 text-slate-400 transition hover:bg-white hover:text-slate-600"
+                aria-label="ปิดคำแนะนำการติดตั้งแอป"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                onClick={onInstallApp}
+                className="touch-target inline-flex items-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-indigo-700 active:scale-[0.99]"
+              >
+                <Download size={16} />
+                ติดตั้งแอปเลย
+              </button>
+              <button
+                type="button"
+                onClick={onDismissInstallOnboarding}
+                className="touch-target rounded-2xl bg-white px-4 py-3 text-sm font-black text-slate-500 shadow-sm transition hover:text-slate-700"
+              >
+                ไว้ก่อน
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showInstallSection && (
+          <SectionCard>
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-indigo-100 p-3 text-indigo-600">
+                <Smartphone size={22} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-base font-black text-slate-900">
+                  {isStandaloneMode ? 'เปิดใช้งานแบบแอปแล้ว' : 'ติดตั้งบนมือถือเพื่อใช้งานง่ายขึ้น'}
+                </p>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  {isStandaloneMode
+                    ? 'เปิดจากหน้าจอหลักได้ทันที หน้าตาจะใกล้เคียงแอปมากขึ้นและเหมาะกับการรับแจ้งเตือนต่อเนื่อง'
+                    : canInstallApp
+                      ? 'เพิ่ม Today Care ลงหน้าจอหลักเพื่อเปิดเร็วขึ้น เต็มจอขึ้น และใช้งานเหมือนแอปมากกว่าเดิม'
+                      : 'บางเครื่องต้องกดเพิ่มไปยังหน้าจอหลักจากเมนูเบราว์เซอร์ก่อน จึงจะใช้งานได้เหมือนแอป'}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                onClick={onInstallApp}
+                className={`touch-target inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-sm font-black shadow-sm transition active:scale-[0.99] ${
+                  isStandaloneMode
+                    ? 'bg-emerald-50 text-emerald-700'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                }`}
+              >
+                {isStandaloneMode ? <Check size={16} /> : <Download size={16} />}
+                {isStandaloneMode ? 'ติดตั้งแล้ว' : 'ติดตั้งแอป'}
+              </button>
+              {!isStandaloneMode && (
+                <span className="text-xs font-bold text-slate-400">
+                  แนะนำให้ติดตั้งเพื่อเปิดง่ายและรับประสบการณ์ใกล้เคียงแอปมากขึ้น
+                </span>
+              )}
+            </div>
+          </SectionCard>
+        )}
+
         <SectionCard>
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -571,6 +671,33 @@ export default function DashboardPage({
             <span className="font-black text-slate-900"> {allergy || 'ไม่มี'}</span>
           </p>
         </div>
+
+        {showStickyInstallCta && (
+          <div className="sticky bottom-[calc(env(safe-area-inset-bottom)+var(--keyboard-offset)+0.5rem)] z-20 px-1 pt-3">
+            <div className="rounded-[1.6rem] border border-slate-200 bg-white/96 p-3 shadow-xl backdrop-blur-md">
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl bg-indigo-100 p-2.5 text-indigo-600">
+                  <Download size={18} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-black text-slate-900">เปิดแบบแอปบนมือถือ</p>
+                  <p className="text-xs leading-5 text-slate-500">
+                    {canInstallApp
+                      ? 'แตะเพื่อติดตั้งลงหน้าจอหลัก'
+                      : 'เปิดเมนูเบราว์เซอร์แล้วเลือกเพิ่มไปยังหน้าจอหลัก'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={onInstallApp}
+                  className="touch-target shrink-0 rounded-2xl bg-indigo-600 px-4 py-3 text-sm font-black text-white shadow-sm transition hover:bg-indigo-700 active:scale-[0.99]"
+                >
+                  ติดตั้ง
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       <GlucoseModal

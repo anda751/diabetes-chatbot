@@ -10,6 +10,8 @@ import {
   Dumbbell,
   LogOut,
   MessageCircleHeart,
+  Bell,
+  BellRing,
   Plus,
   Settings2,
   ShieldPlus,
@@ -54,6 +56,8 @@ export default function DashboardPage({
   afterGlucose,
   onSaveGlucose,
   onNotice,
+  notificationPermission,
+  onEnableNotifications,
 }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [reminders, setReminders] = useState(loadMealReminders);
@@ -67,6 +71,37 @@ export default function DashboardPage({
     () => reminders.filter((item) => isSettingReminders || !item.isDone),
     [isSettingReminders, reminders]
   );
+  const notificationState = useMemo(() => {
+    if (notificationPermission === 'granted') {
+      return {
+        label: 'เปิดการแจ้งเตือนแล้ว',
+        detail: 'ระบบจะแจ้งเตือนเมื่อถึงเวลาอาหาร หากเว็บแอปยังเปิดอยู่',
+        tone: 'bg-emerald-50 border-emerald-100 text-emerald-700',
+      };
+    }
+
+    if (notificationPermission === 'denied') {
+      return {
+        label: 'การแจ้งเตือนถูกปิดอยู่',
+        detail: 'เปิดสิทธิ์แจ้งเตือนในเบราว์เซอร์ก่อน จึงจะเด้งแจ้งเตือนได้',
+        tone: 'bg-amber-50 border-amber-100 text-amber-700',
+      };
+    }
+
+    if (notificationPermission === 'unsupported') {
+      return {
+        label: 'อุปกรณ์นี้ยังไม่รองรับ',
+        detail: 'เบราว์เซอร์นี้ยังไม่รองรับการแจ้งเตือนจากเว็บแอป',
+        tone: 'bg-slate-100 border-slate-200 text-slate-600',
+      };
+    }
+
+    return {
+      label: 'ยังไม่ได้เปิดการแจ้งเตือน',
+      detail: 'กดเปิดเพื่อให้ระบบเตือนเวลาอาหาร พร้อมเสียงและการสั่นบนมือถือที่รองรับ',
+      tone: 'bg-sky-50 border-sky-100 text-sky-700',
+    };
+  }, [notificationPermission]);
 
   const treatmentStyle = useMemo(() => {
     switch (treatment) {
@@ -252,6 +287,28 @@ export default function DashboardPage({
             >
               {isSettingReminders ? 'เสร็จสิ้น' : 'ตั้งเวลา'}
             </button>
+          </div>
+
+          <div className={`mt-4 rounded-[1.5rem] border px-4 py-4 ${notificationState.tone}`}>
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-white/70 p-2.5">
+                {notificationPermission === 'granted' ? <BellRing size={18} /> : <Bell size={18} />}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-black">{notificationState.label}</p>
+                <p className="mt-1 text-sm leading-6 opacity-90">{notificationState.detail}</p>
+              </div>
+            </div>
+
+            {notificationPermission !== 'granted' && notificationPermission !== 'unsupported' && (
+              <button
+                onClick={onEnableNotifications}
+                className="touch-target mt-3 inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-sky-700 shadow-sm transition hover:bg-sky-100"
+              >
+                <BellRing size={15} />
+                เปิดการแจ้งเตือน
+              </button>
+            )}
           </div>
 
           <div className="mt-4 space-y-3">

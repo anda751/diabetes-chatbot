@@ -16,6 +16,8 @@ import {
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
 const DEFAULT_SCREEN = 'login';
+const REMINDER_STORAGE_KEY = 'meal_reminders';
+const REMINDER_ALERTS_KEY = 'meal_reminder_alerts';
 const APP_SCREENS = [
   'login',
   'register',
@@ -61,6 +63,34 @@ function ScreenLoader({ label }) {
   );
 }
 
+function loadMealRemindersFromStorage() {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const saved = window.localStorage.getItem(REMINDER_STORAGE_KEY);
+    return saved ? JSON.parse(saved) : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function getTodayKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getMinuteKey(date = new Date()) {
+  const hour = String(date.getHours()).padStart(2, '0');
+  const minute = String(date.getMinutes()).padStart(2, '0');
+  return `${hour}:${minute}`;
+}
+
+function getReminderAlertKey(reminder, date = new Date()) {
+  return `${getTodayKey(date)}:${reminder.id}:${reminder.time}`;
+}
+
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState(DEFAULT_SCREEN);
   const [userData, setUserData] = useState(null);
@@ -69,6 +99,10 @@ export default function App() {
   const [initialChatMsg, setInitialChatMsg] = useState('');
   const [showToast, setShowToast] = useState(false);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [notificationPermission, setNotificationPermission] = useState(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
+    return window.Notification.permission;
+  });
   const [dialogState, setDialogState] = useState({
     isOpen: false,
     title: '',
@@ -81,6 +115,7 @@ export default function App() {
 
   const historyIndexRef = useRef(0);
   const toastTimerRef = useRef(null);
+  const reminderDialogRef = useRef('');
 
   const closeDialog = useCallback(() => {
     setDialogState((prev) => ({ ...prev, isOpen: false }));
@@ -181,6 +216,66 @@ export default function App() {
     }
   }, [closeDialog, dialogState.onConfirm]);
 
+  const playReminderSound = useCallback(() => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return;
+
+      const context = window.__mealReminderAudioContext || new AudioContextClass();
+      window.__mealReminderAudioContext = context;
+
+      if (context.state === 'suspended') {
+        context.resume().catch(() => {});
+      }
+
+      const oscillator = context.createOscillator();
+      const gainNode = context.createGain();
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(880, context.currentTime);
+      oscillator.frequency.exponentialRampToValueAtTime(660, context.currentTime + 0.18);
+      gainNode.gain.setValueAtTime(0.0001, context.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.14, context.currentTime + 0.02);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.45);
+      oscillator.connect(gainNode);
+      gainNode.connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.45);
+    } catch (_error) {
+      // Ignore audio failures on restricted browsers.
+    }
+  }, []);
+
+  const requestNotificationPermission = useCallback(async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      showAlert({
+        title: 'อุปกรณ์นี้ยังไม่รองรับ',
+        message: 'เบราว์เซอร์นี้ยังไม่รองรับการแจ้งเตือนจากเว็บแอป',
+      });
+      return false;
+    }
+
+    if (window.Notification.permission === 'granted') {
+      setNotificationPermission('granted');
+      return true;
+    }
+
+    const permission = await window.Notification.requestPermission();
+    setNotificationPermission(permission);
+
+    if (permission !== 'granted') {
+      showAlert({
+        title: 'ยังไม่ได้เปิดการแจ้งเตือน',
+        message: 'กรุณาอนุญาตการแจ้งเตือนในเบราว์เซอร์ เพื่อให้ระบบเตือนเวลาอาหารได้',
+      });
+      return false;
+    }
+
+    playReminderSound();
+    return true;
+  }, [playReminderSound, showAlert]);
+
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
 
@@ -206,6 +301,18 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return undefined;
+
+    const syncPermission = () => {
+      setNotificationPermission(window.Notification.permission);
+    };
+
+    syncPermission();
+    window.addEventListener('focus', syncPermission);
+    return () => window.removeEventListener('focus', syncPermission);
+  }, []);
+
   useEffect(
     () => () => {
       if (toastTimerRef.current) {
@@ -214,6 +321,82 @@ export default function App() {
     },
     []
   );
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !userData) return undefined;
+
+    const triggerReminder = (reminder) => {
+      const now = new Date();
+      const alertKey = getReminderAlertKey(reminder, now);
+
+      try {
+        const storedAlerts = JSON.parse(window.localStorage.getItem(REMINDER_ALERTS_KEY) || '{}');
+        if (storedAlerts[alertKey]) return;
+
+        storedAlerts[alertKey] = now.toISOString();
+        const todayPrefix = `${getTodayKey(now)}:`;
+        const prunedAlerts = Object.fromEntries(
+          Object.entries(storedAlerts).filter(([key]) => key.startsWith(todayPrefix))
+        );
+        window.localStorage.setItem(REMINDER_ALERTS_KEY, JSON.stringify(prunedAlerts));
+      } catch (_error) {
+        // Ignore storage issues and continue with current alert.
+      }
+
+      const title = `ถึงเวลาทาน${reminder.label}`;
+      const body = `ถึงเวลา ${reminder.time} น. อย่าลืมทานอาหารให้ตรงเวลาเพื่อช่วยคุมน้ำตาลนะคะ`;
+
+      if ('Notification' in window && window.Notification.permission === 'granted') {
+        try {
+          const notification = new window.Notification(title, {
+            body,
+            icon: '/favicon.ico',
+            badge: '/favicon.ico',
+            tag: `meal-reminder-${reminder.id}`,
+            renotify: true,
+            requireInteraction: false,
+          });
+
+          notification.onclick = () => {
+            window.focus();
+            notification.close();
+          };
+        } catch (_error) {
+          // Ignore Notification constructor failures.
+        }
+      }
+
+      if (navigator.vibrate) {
+        navigator.vibrate([180, 120, 180]);
+      }
+
+      playReminderSound();
+
+      if (document.visibilityState === 'visible' && reminderDialogRef.current !== alertKey) {
+        reminderDialogRef.current = alertKey;
+        showAlert({
+          title,
+          message: `${body}\n\nหากต้องการให้แจ้งเตือนต่อเนื่อง ควรเปิดเว็บแอปนี้ค้างไว้หรือเพิ่มเป็นแอปบนหน้าจอหลัก`,
+        });
+      }
+    };
+
+    const checkMealReminders = () => {
+      const reminders = loadMealRemindersFromStorage();
+      if (!Array.isArray(reminders) || reminders.length === 0) return;
+
+      const currentMinute = getMinuteKey(new Date());
+      reminders.forEach((reminder) => {
+        if (!reminder?.time || !reminder?.label) return;
+        if (String(reminder.time) !== currentMinute) return;
+        triggerReminder(reminder);
+      });
+    };
+
+    checkMealReminders();
+    const interval = window.setInterval(checkMealReminders, 30000);
+    return () => window.clearInterval(interval);
+  }, [playReminderSound, showAlert, userData]);
 
   const fetchGlucoseHistory = useCallback(async () => {
     try {
@@ -553,6 +736,8 @@ export default function App() {
                   onEditProfile={() => navigateToScreen('edit_profile')}
                   onLogout={handleLogout}
                   onNotice={showAlert}
+                  notificationPermission={notificationPermission}
+                  onEnableNotifications={requestNotificationPermission}
                   onSelectChat={(category) =>
                     category ? navigateToScreen('category_detail', { category }) : navigateToChat('')
                   }

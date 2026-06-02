@@ -86,12 +86,16 @@ textarea {
 }
 
 .app-screen {
-  min-height: inherit;
+  min-height: var(--app-vh);
+  height: var(--app-vh);
   background: #f8fafc;
 }
 
 .app-page {
   min-height: var(--app-vh);
+  height: 100%;
+  touch-action: pan-y;
+  overflow: hidden;
 }
 
 .app-page-transition {
@@ -99,12 +103,15 @@ textarea {
 }
 
 .app-scroll-region {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
   scroll-behavior: smooth;
   scroll-padding-bottom: calc(160px + var(--keyboard-offset));
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .app-safe-top {

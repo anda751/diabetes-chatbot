@@ -727,8 +727,8 @@ export default function App() {
           </div>
         )}
 
-        <div className="app-screen relative flex w-full flex-col">
-          <div className="custom-scrollbar flex-1 min-h-0 overflow-visible touch-pan-y">
+        <div className="app-screen relative flex w-full flex-col overflow-hidden">
+          <div className="custom-scrollbar flex-1 min-h-0 overflow-hidden">
             {!isAppReady && (
               <div className="flex min-h-[var(--app-vh)] items-center justify-center bg-white">
                 <ScreenLoader label="กำลังตรวจสอบการเข้าสู่ระบบ..." />

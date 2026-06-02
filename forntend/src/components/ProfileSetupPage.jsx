@@ -1,8 +1,17 @@
 import React, { useState } from 'react';
-import { Scale, Ruler, Pill, Activity, ChevronRight, User, AlertCircle, CheckCircle2 } from 'lucide-react';
+import {
+  Activity,
+  AlertCircle,
+  CheckCircle2,
+  ChevronRight,
+  Pill,
+  Ruler,
+  Scale,
+  User,
+} from 'lucide-react';
 import { validateProfileForm } from '../utils/validation';
 
-const ProfileSetupPage = ({ onSave, onNotice }) => {
+export default function ProfileSetupPage({ onSave, onNotice }) {
   const [formData, setFormData] = useState({
     name: '',
     weight: '',
@@ -12,8 +21,8 @@ const ProfileSetupPage = ({ onSave, onNotice }) => {
     allergy: '',
   });
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
+  const handleSubmit = (event) => {
+    event.preventDefault();
     const validationError = validateProfileForm(formData);
 
     if (validationError) {
@@ -23,157 +32,160 @@ const ProfileSetupPage = ({ onSave, onNotice }) => {
       });
       return;
     }
+
     onSave(formData);
   };
 
   return (
-    <div className="min-h-[100dvh] overflow-visible bg-white p-6 pb-10 sm:h-full">
-      <h2 className="mb-2 text-2xl font-bold text-blue-800">ตั้งค่าโปรไฟล์สุขภาพ</h2>
-      <p className="mb-6 text-gray-500">
-        ข้อมูลนี้จะใช้ช่วยคำนวณและแนะนำการดูแลที่เหมาะกับคุณ
-      </p>
+    <div className="app-safe-top app-safe-bottom min-h-[100dvh] bg-white sm:h-full">
+      <div className="border-b border-slate-100 bg-white px-6 pb-5 pt-3">
+        <h2 className="text-2xl font-black tracking-tight text-slate-900">ตั้งค่าโปรไฟล์สุขภาพ</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-500">
+          ข้อมูลนี้จะช่วยให้ระบบคำนวณและแนะนำการดูแลที่เหมาะกับคุณมากขึ้น
+        </p>
+      </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 font-bold text-gray-700">
-            <User size={18} />
-            ชื่อ-นามสกุล
-          </label>
-          <input
-            type="text"
-            className="w-full rounded-2xl border bg-gray-50 p-4 text-lg outline-none transition-all focus:border-blue-500"
-            placeholder="เช่น คุณสมชาย ใจดี"
-            maxLength={80}
-            value={formData.name}
-            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-          />
-        </div>
+      <form onSubmit={handleSubmit} className="space-y-6 px-6 py-6">
+        <Field
+          label="ชื่อ-นามสกุล"
+          icon={<User size={18} />}
+          placeholder="เช่น คุณสมชาย ใจดี"
+          value={formData.name}
+          onChange={(event) => setFormData((prev) => ({ ...prev, name: event.target.value }))}
+        />
 
         <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="flex items-center gap-1 font-bold text-gray-700">
-              <Scale size={18} />
-              น้ำหนัก (กก.)
-            </label>
-            <input
-              type="number"
-              className="w-full rounded-2xl border bg-gray-50 p-4 text-center text-xl outline-none transition-all focus:border-blue-500"
-              placeholder="เช่น 65"
-              min="20"
-              max="300"
-              step="0.1"
-              value={formData.weight}
-              onChange={(e) => setFormData({ ...formData, weight: e.target.value })}
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="flex items-center gap-1 font-bold text-gray-700">
-              <Ruler size={18} />
-              ส่วนสูง (ซม.)
-            </label>
-            <input
-              type="number"
-              className="w-full rounded-2xl border bg-gray-50 p-4 text-center text-xl outline-none transition-all focus:border-blue-500"
-              placeholder="เช่น 165"
-              min="100"
-              max="250"
-              step="0.1"
-              value={formData.height}
-              onChange={(e) => setFormData({ ...formData, height: e.target.value })}
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 font-bold text-gray-700">
-            <Activity size={18} />
-            ระยะของโรค
-          </label>
-          <select
-            className="w-full rounded-2xl border bg-white p-4 text-lg outline-none transition-all focus:border-blue-500"
-            value={formData.stage}
-            onChange={(e) => setFormData({ ...formData, stage: e.target.value })}
-          >
-            <option value="1">ระยะที่ 1 (เริ่มดูแลและควบคุมได้)</option>
-            <option value="2">ระยะที่ 2 (ต้องติดตามใกล้ชิดมากขึ้น)</option>
-            <option value="3">ระยะที่ 3 (เริ่มมีภาวะแทรกซ้อน)</option>
-          </select>
-        </div>
-
-        <div className="space-y-2">
-          <label className="flex items-center gap-2 font-bold text-red-700">
-            <AlertCircle size={18} />
-            ประวัติการแพ้ยา
-          </label>
-          <input
-            type="text"
-            className="w-full rounded-2xl border border-red-100 bg-red-50 p-4 text-lg outline-none placeholder:text-red-300 focus:border-red-400"
-            placeholder="ถ้าไม่มีให้เว้นว่างได้"
-            maxLength={200}
-            value={formData.allergy}
-            onChange={(e) => setFormData({ ...formData, allergy: e.target.value })}
+          <Field
+            label="น้ำหนัก (กก.)"
+            icon={<Scale size={18} />}
+            type="number"
+            inputMode="decimal"
+            placeholder="เช่น 65"
+            value={formData.weight}
+            onChange={(event) => setFormData((prev) => ({ ...prev, weight: event.target.value }))}
+          />
+          <Field
+            label="ส่วนสูง (ซม.)"
+            icon={<Ruler size={18} />}
+            type="number"
+            inputMode="decimal"
+            placeholder="เช่น 165"
+            value={formData.height}
+            onChange={(event) => setFormData((prev) => ({ ...prev, height: event.target.value }))}
           />
         </div>
 
+        <div className="space-y-2">
+          <label className="pl-1 text-xs font-black uppercase tracking-[0.16em] text-slate-400">
+            ระยะของโรค
+          </label>
+          <div className="relative">
+            <Activity size={18} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+            <select
+              value={formData.stage}
+              onChange={(event) => setFormData((prev) => ({ ...prev, stage: event.target.value }))}
+              className="touch-target w-full appearance-none rounded-[1.5rem] border border-slate-200 bg-slate-50 py-4 pl-12 pr-4 text-base font-semibold text-slate-700 outline-none transition focus:border-indigo-200 focus:bg-white focus:ring-4 focus:ring-indigo-100/70"
+            >
+              <option value="1">ระยะที่ 1 ดูแลและคุมได้ดี</option>
+              <option value="2">ระยะที่ 2 ต้องติดตามใกล้ชิดขึ้น</option>
+              <option value="3">ระยะที่ 3 เริ่มมีภาวะแทรกซ้อน</option>
+            </select>
+          </div>
+        </div>
+
+        <Field
+          label="ประวัติการแพ้ยา"
+          icon={<AlertCircle size={18} />}
+          placeholder="ถ้าไม่มีให้เว้นว่างได้"
+          value={formData.allergy}
+          onChange={(event) => setFormData((prev) => ({ ...prev, allergy: event.target.value }))}
+          tone="danger"
+        />
+
         <div className="rounded-[2rem] border border-orange-100 bg-orange-50 p-5 shadow-sm">
-          <label className="mb-4 flex items-center gap-2 font-bold text-orange-800">
-            <Pill size={20} />
+          <label className="mb-4 flex items-center gap-2 text-sm font-black text-orange-800">
+            <Pill size={18} />
             รูปแบบการดูแลน้ำตาลปัจจุบัน
           </label>
 
-          <div className="flex flex-col gap-3">
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setFormData({ ...formData, treatment: 'กินยา' })}
-                className={`flex flex-1 flex-col items-center gap-1 rounded-2xl border-2 py-4 font-bold transition-all ${
-                  formData.treatment === 'กินยา'
-                    ? 'scale-[1.02] border-blue-600 bg-blue-600 text-white shadow-md'
-                    : 'border-gray-200 bg-white text-gray-400'
-                }`}
-              >
-                <span>กินยา</span>
-                {formData.treatment === 'กินยา' && <CheckCircle2 size={14} />}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setFormData({ ...formData, treatment: 'ฉีดยา' })}
-                className={`flex flex-1 flex-col items-center gap-1 rounded-2xl border-2 py-4 font-bold transition-all ${
-                  formData.treatment === 'ฉีดยา'
-                    ? 'scale-[1.02] border-orange-500 bg-orange-500 text-white shadow-md'
-                    : 'border-gray-200 bg-white text-gray-400'
-                }`}
-              >
-                <span>ฉีดยา</span>
-                {formData.treatment === 'ฉีดยา' && <CheckCircle2 size={14} />}
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setFormData({ ...formData, treatment: 'ไม่มี' })}
-              className={`flex w-full items-center justify-center gap-2 rounded-2xl border-2 py-4 font-bold transition-all ${
-                formData.treatment === 'ไม่มี'
-                  ? 'scale-[1.02] border-emerald-600 bg-emerald-600 text-white shadow-md'
-                  : 'border-gray-200 bg-white text-gray-400'
-              }`}
-            >
-              ไม่มี (คุมอาหารและออกกำลังกาย)
-              {formData.treatment === 'ไม่มี' && <CheckCircle2 size={18} />}
-            </button>
+          <div className="grid gap-3">
+            <TreatmentButton
+              active={formData.treatment === 'กินยา'}
+              onClick={() => setFormData((prev) => ({ ...prev, treatment: 'กินยา' }))}
+              label="ทานยา"
+              tone="blue"
+            />
+            <TreatmentButton
+              active={formData.treatment === 'ฉีดยา'}
+              onClick={() => setFormData((prev) => ({ ...prev, treatment: 'ฉีดยา' }))}
+              label="ฉีดยา"
+              tone="orange"
+            />
+            <TreatmentButton
+              active={formData.treatment === 'ไม่มี'}
+              onClick={() => setFormData((prev) => ({ ...prev, treatment: 'ไม่มี' }))}
+              label="ยังไม่ได้ใช้ยา"
+              description="คุมอาหารและออกกำลังกาย"
+              tone="emerald"
+            />
           </div>
         </div>
 
         <button
           type="submit"
-          className="mt-4 flex w-full items-center justify-center gap-2 rounded-3xl bg-blue-600 py-5 text-xl font-bold text-white shadow-xl transition-all hover:bg-blue-700 active:scale-95"
+          className="touch-target flex w-full items-center justify-center gap-2 rounded-[1.75rem] bg-blue-600 py-4 text-base font-black text-white shadow-xl shadow-blue-100 transition active:scale-95"
         >
-          บันทึกและเริ่มใช้งาน <ChevronRight />
+          บันทึกและเริ่มใช้งาน
+          <ChevronRight size={18} />
         </button>
       </form>
     </div>
   );
-};
+}
 
-export default ProfileSetupPage;
+function Field({ label, icon, type = 'text', tone = 'default', ...props }) {
+  const toneClass =
+    tone === 'danger'
+      ? 'border-red-100 bg-red-50 focus:border-red-200 focus:ring-red-100/70'
+      : 'border-slate-200 bg-slate-50 focus:border-indigo-200 focus:ring-indigo-100/70';
+
+  return (
+    <label className="block space-y-2">
+      <span className="pl-1 text-xs font-black uppercase tracking-[0.16em] text-slate-400">
+        {label}
+      </span>
+      <div className="relative">
+        <div className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+          {icon}
+        </div>
+        <input
+          type={type}
+          {...props}
+          className={`touch-target w-full rounded-[1.5rem] border py-4 pl-12 pr-4 text-base font-semibold text-slate-700 outline-none transition placeholder:text-slate-300 focus:bg-white focus:ring-4 ${toneClass}`}
+        />
+      </div>
+    </label>
+  );
+}
+
+function TreatmentButton({ active, onClick, label, description, tone }) {
+  const toneMap = {
+    blue: active ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-500',
+    orange: active ? 'border-orange-500 bg-orange-500 text-white' : 'border-slate-200 bg-white text-slate-500',
+    emerald: active ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-white text-slate-500',
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`touch-target flex w-full items-center justify-between rounded-[1.5rem] border-2 px-4 py-4 text-left font-black transition active:scale-[0.99] ${toneMap[tone]}`}
+    >
+      <div>
+        <p className="text-base">{label}</p>
+        {description && <p className={`mt-1 text-xs font-semibold ${active ? 'text-white/80' : 'text-slate-400'}`}>{description}</p>}
+      </div>
+      {active && <CheckCircle2 size={18} />}
+    </button>
+  );
+}

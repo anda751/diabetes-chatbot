@@ -4,11 +4,22 @@
   --font-sans: "Sarabun", "Inter", sans-serif;
 }
 
-/* แก้ปัญหาจอมือถือล้นในบางเบราว์เซอร์ */
+:root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
 html, body, #root {
   min-height: 100%;
   margin: 0;
   padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  background: #e7eef8;
 }
 
 body {
@@ -16,4 +27,86 @@ body {
   overflow-y: auto;
   overscroll-behavior-y: auto;
   -webkit-overflow-scrolling: touch;
+  background:
+    radial-gradient(circle at top, #dce9ff 0%, #eef4fb 36%, #e6edf8 100%);
+  color: #0f172a;
+  font-feature-settings: "liga" 1, "kern" 1;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button,
+[role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.app-shell {
+  min-height: 100dvh;
+  padding:
+    max(16px, var(--safe-top))
+    max(16px, var(--safe-right))
+    max(16px, var(--safe-bottom))
+    max(16px, var(--safe-left));
+}
+
+.app-surface {
+  width: 100%;
+  max-width: 430px;
+  min-height: calc(100dvh - max(16px, var(--safe-top)) - max(16px, var(--safe-bottom)));
+  margin: 0 auto;
+  border-radius: 32px;
+  background: #ffffff;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.12);
+  overflow: clip;
+}
+
+.app-screen {
+  min-height: inherit;
+  background: #f8fafc;
+}
+
+.app-safe-top {
+  padding-top: max(20px, var(--safe-top));
+}
+
+.app-safe-bottom {
+  padding-bottom: max(16px, var(--safe-bottom));
+}
+
+.touch-target {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.custom-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@media (max-width: 639px) {
+  .app-shell {
+    padding: 0;
+  }
+
+  .app-surface {
+    max-width: none;
+    min-height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+  }
 }

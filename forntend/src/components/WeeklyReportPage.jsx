@@ -1,44 +1,36 @@
-import React, { useMemo, useState } from 'react';
+import React, { Suspense, lazy, useMemo, useState } from 'react';
 import {
-  ChevronLeft,
-  Calendar,
-  Filter,
-  TrendingUp,
-  TrendingDown,
-  Info,
   AlertCircle,
-  Sparkles,
-  X,
+  Calendar,
+  ChevronLeft,
   ChevronRight,
+  Filter,
+  Info,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+  X,
 } from 'lucide-react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-} from 'recharts';
 
-const WeeklyReportPage = ({ onBack, glucoseHistory = [], onConsultAI }) => {
+const WeeklyReportChart = lazy(() => import('./WeeklyReportChart'));
+
+function parseThaiDate(dateStr) {
+  try {
+    const parts = String(dateStr).split('/');
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    let year = parseInt(parts[2], 10);
+    if (year > 2500) year -= 543;
+    return new Date(year, month, day);
+  } catch (_error) {
+    return null;
+  }
+}
+
+export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsultAI }) {
   const [filterDays, setFilterDays] = useState(7);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [customRange, setCustomRange] = useState({ start: '', end: '' });
-
-  const parseDate = (dateStr) => {
-    try {
-      const parts = String(dateStr).split('/');
-      let day = parseInt(parts[0], 10);
-      let month = parseInt(parts[1], 10) - 1;
-      let year = parseInt(parts[2], 10);
-      if (year > 2500) year -= 543;
-      return new Date(year, month, day);
-    } catch (error) {
-      return null;
-    }
-  };
 
   const chartData = useMemo(() => {
     if (!glucoseHistory?.length) return [];
@@ -47,7 +39,7 @@ const WeeklyReportPage = ({ onBack, glucoseHistory = [], onConsultAI }) => {
     now.setHours(23, 59, 59, 999);
 
     const filtered = glucoseHistory.filter((item) => {
-      const itemDate = parseDate(item.date);
+      const itemDate = parseThaiDate(item.date);
       if (!itemDate) return false;
 
       if (customRange.start && customRange.end) {
@@ -70,31 +62,38 @@ const WeeklyReportPage = ({ onBack, glucoseHistory = [], onConsultAI }) => {
         afterValue: item.phase === 'after' ? item.value : null,
         displayDate: `${String(item.date).split('/')[0]}/${String(item.date).split('/')[1]}`,
       }));
-  }, [glucoseHistory, filterDays, customRange]);
+  }, [customRange, filterDays, glucoseHistory]);
 
   const stats = useMemo(() => {
     if (!chartData.length) {
       return { avg: 0, highCount: 0 };
     }
 
-    const sum = chartData.reduce((acc, curr) => acc + curr.value, 0);
-    const highEntries = chartData.filter((item) => item.value > 140);
+    const sum = chartData.reduce((acc, item) => acc + item.value, 0);
+    const highCount = chartData.filter((item) => item.value > 140).length;
 
     return {
       avg: Math.round(sum / chartData.length),
-      highCount: highEntries.length,
+      highCount,
     };
   }, [chartData]);
 
   const handleConsultAI = () => {
     const context = `สรุปรายงานค่าน้ำตาลเฉลี่ย ${stats.avg} mg/dL และพบค่าสูงกว่าเกณฑ์ ${stats.highCount} ครั้ง ช่วยอธิบายแนวโน้มและแนะนำวิธีดูแลตัวเองต่อเนื่องแบบเข้าใจง่ายให้หน่อยค่ะ`;
-    if (onConsultAI) onConsultAI(context);
+    onConsultAI?.(context);
   };
 
   const clearCustomRange = () => {
     setCustomRange({ start: '', end: '' });
     setFilterDays(7);
   };
+
+  const chartFallback = (
+    <div className="h-full flex flex-col items-center justify-center gap-3 rounded-3xl bg-slate-50 animate-pulse">
+      <div className="h-8 w-8 rounded-full bg-slate-200" />
+      <div className="h-4 w-40 rounded bg-slate-200" />
+    </div>
+  );
 
   return (
     <div className="min-h-[100dvh] sm:h-full bg-[#F8FAFC] flex flex-col font-sans">
@@ -108,13 +107,17 @@ const WeeklyReportPage = ({ onBack, glucoseHistory = [], onConsultAI }) => {
           </button>
           <div>
             <h2 className="text-xl font-black text-slate-800 tracking-tight">สรุปค่าน้ำตาล</h2>
-            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">ดูแนวโน้มสุขภาพรายวัน</p>
+            <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">
+              ดูแนวโน้มสุขภาพรายวัน
+            </p>
           </div>
         </div>
 
         <button
-          onClick={() => setShowDatePicker(!showDatePicker)}
-          className={`p-2.5 rounded-2xl transition-all ${showDatePicker ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600'}`}
+          onClick={() => setShowDatePicker((prev) => !prev)}
+          className={`p-2.5 rounded-2xl transition-all ${
+            showDatePicker ? 'bg-indigo-600 text-white' : 'bg-indigo-50 text-indigo-600'
+          }`}
         >
           <Calendar size={22} />
         </button>
@@ -146,7 +149,10 @@ const WeeklyReportPage = ({ onBack, glucoseHistory = [], onConsultAI }) => {
               <div className="flex justify-between items-center mb-4">
                 <p className="text-xs font-black text-slate-800 uppercase">เลือกช่วงวันที่เอง</p>
                 {(customRange.start || customRange.end) && (
-                  <button onClick={clearCustomRange} className="text-[10px] font-black text-red-500 flex items-center gap-1">
+                  <button
+                    onClick={clearCustomRange}
+                    className="text-[10px] font-black text-red-500 flex items-center gap-1"
+                  >
                     <X size={12} />
                     ล้างค่า
                   </button>
@@ -158,14 +164,18 @@ const WeeklyReportPage = ({ onBack, glucoseHistory = [], onConsultAI }) => {
                   type="date"
                   className="flex-1 bg-slate-50 border border-slate-100 p-3 rounded-xl text-xs font-bold outline-none focus:border-indigo-300"
                   value={customRange.start}
-                  onChange={(e) => setCustomRange({ ...customRange, start: e.target.value })}
+                  onChange={(event) =>
+                    setCustomRange((prev) => ({ ...prev, start: event.target.value }))
+                  }
                 />
                 <ChevronRight size={16} className="text-slate-300" />
                 <input
                   type="date"
                   className="flex-1 bg-slate-50 border border-slate-100 p-3 rounded-xl text-xs font-bold outline-none focus:border-indigo-300"
                   value={customRange.end}
-                  onChange={(e) => setCustomRange({ ...customRange, end: e.target.value })}
+                  onChange={(event) =>
+                    setCustomRange((prev) => ({ ...prev, end: event.target.value }))
+                  }
                 />
               </div>
             </div>
@@ -176,7 +186,9 @@ const WeeklyReportPage = ({ onBack, glucoseHistory = [], onConsultAI }) => {
           <div className="mb-8 flex justify-between items-start gap-4">
             <div>
               <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">
-                {customRange.start ? 'ค่าเฉลี่ยในช่วงวันที่เลือก' : `ค่าเฉลี่ยใน ${filterDays} วันล่าสุด`}
+                {customRange.start
+                  ? 'ค่าเฉลี่ยในช่วงวันที่เลือก'
+                  : `ค่าเฉลี่ยใน ${filterDays} วันล่าสุด`}
               </p>
               <div className="flex items-baseline gap-2">
                 <h3 className="text-5xl font-black text-slate-800 tracking-tighter">{stats.avg}</h3>
@@ -184,24 +196,20 @@ const WeeklyReportPage = ({ onBack, glucoseHistory = [], onConsultAI }) => {
               </div>
             </div>
 
-            <div className={`px-4 py-1.5 rounded-full text-[10px] font-black ${stats.avg > 140 ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-500'}`}>
+            <div
+              className={`px-4 py-1.5 rounded-full text-[10px] font-black ${
+                stats.avg > 140 ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-500'
+              }`}
+            >
               {stats.avg > 140 ? 'ต้องระวังเพิ่ม' : 'ภาพรวมดี'}
             </div>
           </div>
 
           <div className="h-64 w-full">
             {chartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="8 8" vertical={false} stroke="#F1F5F9" />
-                  <XAxis dataKey="displayDate" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94A3B8' }} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94A3B8' }} domain={['dataMin - 20', 'dataMax + 20']} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <ReferenceLine y={140} stroke="#FDA4AF" strokeDasharray="3 3" />
-                  <Line name="ก่อนอาหาร" type="monotone" dataKey="beforeValue" stroke="#4F46E5" strokeWidth={4} dot={<CustomDot color="#4F46E5" />} connectNulls />
-                  <Line name="หลังอาหาร" type="monotone" dataKey="afterValue" stroke="#F97316" strokeWidth={4} dot={<CustomDot color="#F97316" />} connectNulls />
-                </LineChart>
-              </ResponsiveContainer>
+              <Suspense fallback={chartFallback}>
+                <WeeklyReportChart chartData={chartData} />
+              </Suspense>
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-2 border-2 border-dashed border-slate-100 rounded-3xl">
                 <Info size={32} />
@@ -222,7 +230,9 @@ const WeeklyReportPage = ({ onBack, glucoseHistory = [], onConsultAI }) => {
                 <AlertCircle size={24} />
               </div>
               <div className="space-y-3">
-                <h4 className="font-black text-red-900 leading-tight">พบค่าสูงกว่าปกติ {stats.highCount} ครั้ง</h4>
+                <h4 className="font-black text-red-900 leading-tight">
+                  พบค่าสูงกว่าปกติ {stats.highCount} ครั้ง
+                </h4>
                 <p className="text-sm text-red-700/80 leading-relaxed font-medium">
                   ในช่วงที่เลือกมีค่าน้ำตาลเกิน 140 mg/dL หลายครั้ง ลองให้หมอ AI ช่วยสรุปและแนะนำแนวทางดูแลเพิ่มเติมได้เลย
                 </p>
@@ -246,17 +256,30 @@ const WeeklyReportPage = ({ onBack, glucoseHistory = [], onConsultAI }) => {
 
           <div className="grid gap-3">
             {[...chartData].reverse().map((item) => (
-              <div key={item.id} className="bg-white p-5 rounded-3xl flex items-center justify-between border border-slate-100 shadow-sm transition-all hover:border-indigo-100">
+              <div
+                key={item.id}
+                className="bg-white p-5 rounded-3xl flex items-center justify-between border border-slate-100 shadow-sm transition-all hover:border-indigo-100"
+              >
                 <div className="flex items-center gap-4">
-                  <div className={`p-3 rounded-2xl ${item.phase === 'before' ? 'bg-indigo-50 text-indigo-600' : 'bg-orange-50 text-orange-600'}`}>
-                    {item.phase === 'before' ? <TrendingDown size={20} /> : <TrendingUp size={20} />}
+                  <div
+                    className={`p-3 rounded-2xl ${
+                      item.phase === 'before'
+                        ? 'bg-indigo-50 text-indigo-600'
+                        : 'bg-orange-50 text-orange-600'
+                    }`}
+                  >
+                    {item.phase === 'before' ? (
+                      <TrendingDown size={20} />
+                    ) : (
+                      <TrendingUp size={20} />
+                    )}
                   </div>
                   <div>
                     <p className="text-lg font-black text-slate-800">
                       {item.value} <span className="text-[10px] text-slate-400">mg/dL</span>
                     </p>
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
-                      {item.date} • {item.time}
+                      {item.date} · {item.time}
                     </p>
                   </div>
                 </div>
@@ -279,42 +302,4 @@ const WeeklyReportPage = ({ onBack, glucoseHistory = [], onConsultAI }) => {
       </div>
     </div>
   );
-};
-
-const CustomDot = ({ cx, cy, value, color }) => {
-  if (!cx || !cy) return null;
-
-  if (value > 140) {
-    return (
-      <g>
-        <circle cx={cx} cy={cy} r={12} fill={color} opacity="0.2">
-          <animate attributeName="r" from="8" to="16" dur="1.5s" repeatCount="indefinite" />
-          <animate attributeName="opacity" from="0.3" to="0" dur="1.5s" repeatCount="indefinite" />
-        </circle>
-        <circle cx={cx} cy={cy} r={6} fill="#ef4444" stroke="#fff" strokeWidth={3} />
-      </g>
-    );
-  }
-
-  return <circle cx={cx} cy={cy} r={5} fill={color} stroke="#fff" strokeWidth={2} />;
-};
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!(active && payload && payload.length)) return null;
-
-  return (
-    <div className="bg-slate-900/95 backdrop-blur-md text-white p-4 rounded-2xl shadow-2xl border border-white/10">
-      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2 border-b border-white/10 pb-1">{label}</p>
-      {payload.map((entry, index) => (
-        <div key={index} className="flex items-center gap-3 py-0.5">
-          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></div>
-          <p className="text-sm font-bold">
-            {entry.name}: <span className={entry.value > 140 ? 'text-red-400' : 'text-indigo-300'}>{entry.value}</span>
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-export default WeeklyReportPage;
+}

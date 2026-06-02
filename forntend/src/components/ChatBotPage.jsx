@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, ChevronLeft, Mic, MicOff, Send, User } from 'lucide-react';
 import { API_URL } from '../config';
-import { validateChatMessage } from '../utils/validation';
 import { CHAT_QUICK_PROMPTS } from '../data/aiTopics';
+import { validateChatMessage } from '../utils/validation';
 
 const isLocalHostname = (hostname) =>
   hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
@@ -32,11 +32,11 @@ function getVoiceSupport() {
   };
 }
 
-const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
+export default function ChatBotPage({ onBack, userData, initialMessage, onNotice }) {
   const [messages, setMessages] = useState([
     {
       id: 1,
-      text: `สวัสดีค่ะคุณ ${userData?.name || 'คนไข้'} ถามเรื่องอาหาร อาการ ค่าน้ำตาล หรือการดูแลเบาหวานได้เลยนะคะ`,
+      text: `สวัสดีค่ะคุณ ${userData?.name || 'ผู้ใช้งาน'} ถามเรื่องอาหาร อาการ ค่าน้ำตาล หรือการดูแลเบาหวานได้เลยนะคะ`,
       sender: 'bot',
     },
   ]);
@@ -47,6 +47,7 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
     supported: false,
     message: 'กำลังตรวจสอบไมโครโฟน...',
   });
+
   const scrollContainerRef = useRef(null);
   const inputRef = useRef(null);
   const hasSentInitial = useRef(false);
@@ -80,7 +81,6 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
       setIsListening(false);
     };
     recognitionRef.current.onerror = (event) => {
-      console.error('Speech recognition error:', event.error);
       setIsListening(false);
 
       const errorMap = {
@@ -92,7 +92,9 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
 
       onNotice?.({
         title: 'ใช้งานไมโครโฟนไม่สำเร็จ',
-        message: errorMap[event.error] || 'ยังไม่สามารถรับเสียงได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง',
+        message:
+          errorMap[event.error] ||
+          'ยังไม่สามารถรับเสียงได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง',
       });
     };
   }, [onNotice]);
@@ -102,7 +104,7 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
       top: scrollContainerRef.current.scrollHeight,
       behavior: 'smooth',
     });
-  }, [messages, isLoading]);
+  }, [isLoading, messages]);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -130,7 +132,10 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
     }
 
     if (!micState.supported || !recognitionRef.current) {
-      onNotice?.({ title: 'ยังใช้ไมโครโฟนไม่ได้', message: micState.message });
+      onNotice?.({
+        title: 'ยังใช้ไมโครโฟนไม่ได้',
+        message: micState.message,
+      });
       return;
     }
 
@@ -138,9 +143,9 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
       await ensureMicrophoneAccess();
       recognitionRef.current.start();
     } catch (error) {
-      console.error('Microphone start error:', error);
+      let message =
+        'ยังไม่สามารถเปิดไมโครโฟนได้ กรุณาตรวจสอบสิทธิ์ไมโครโฟนของ Chrome แล้วลองใหม่';
 
-      let message = 'ยังไม่สามารถเปิดไมโครโฟนได้ กรุณาตรวจสอบสิทธิ์ไมโครโฟนของ Chrome แล้วลองใหม่';
       if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError') {
         message = 'Chrome ยังไม่ได้รับสิทธิ์ใช้ไมโครโฟน กรุณากดอนุญาตก่อน';
       } else if (error?.name === 'NotFoundError') {
@@ -149,7 +154,10 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
         message = 'Chrome มือถือจะใช้ไมโครโฟนได้เมื่อเปิดผ่าน HTTPS หรือ localhost เท่านั้น';
       }
 
-      onNotice?.({ title: 'เปิดไมโครโฟนไม่สำเร็จ', message });
+      onNotice?.({
+        title: 'เปิดไมโครโฟนไม่สำเร็จ',
+        message,
+      });
       setIsListening(false);
     }
   };
@@ -161,16 +169,16 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
     const validationError = validateChatMessage(textToSend);
     if (validationError) {
       if (!overrideMsg) {
-        onNotice?.({ title: 'ข้อความยังไม่พร้อมส่ง', message: validationError });
+        onNotice?.({
+          title: 'ข้อความยังไม่พร้อมส่ง',
+          message: validationError,
+        });
       }
       return;
     }
 
     const normalizedText = textToSend.trim();
-    setMessages((prev) => [
-      ...prev,
-      { id: Date.now(), text: normalizedText, sender: 'user' },
-    ]);
+    setMessages((prev) => [...prev, { id: Date.now(), text: normalizedText, sender: 'user' }]);
 
     if (!overrideMsg) setInput('');
     setIsLoading(true);
@@ -197,12 +205,13 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
         },
       ]);
     } catch (error) {
-      console.error('Chat error:', error);
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now() + 1,
-          text: error.message || 'ขออภัยค่ะ ตอนนี้ระบบเชื่อมต่อหมอ AI ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
+          text:
+            error.message ||
+            'ขออภัยค่ะ ตอนนี้ระบบเชื่อมต่อหมอ AI ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง',
           sender: 'bot',
         },
       ]);
@@ -212,12 +221,12 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
   };
 
   return (
-    <div className="mx-auto flex min-h-[100dvh] max-w-md flex-col overflow-x-hidden bg-[#F6FAFD] shadow-2xl sm:h-full">
-      <div className="border-b border-sky-100 bg-white px-4 pt-5 pb-4">
+    <div className="mx-auto flex min-h-[100dvh] max-w-md flex-col overflow-x-hidden bg-[#F6FAFD] sm:h-full">
+      <div className="app-safe-top sticky top-0 z-10 border-b border-sky-100 bg-white/95 px-4 pb-4 pt-3 backdrop-blur-md">
         <div className="flex items-start gap-3">
           <button
             onClick={onBack}
-            className="mt-0.5 rounded-2xl p-2 text-slate-600 transition-all hover:bg-slate-50 active:scale-95"
+            className="touch-target mt-0.5 rounded-2xl p-2 text-slate-600 transition hover:bg-slate-50 active:scale-95"
             aria-label="กลับ"
           >
             <ChevronLeft size={22} />
@@ -231,7 +240,7 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
               </span>
             </div>
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              ถามได้ทั้งเรื่องอาหาร อาการ ค่าน้ำตาล และการดูแลตัวเอง
+              ถามได้ทั้งเรื่องอาหาร อาการ ค่าน้ำตาล และการดูแลตัวเองแบบเข้าใจง่าย
             </p>
           </div>
         </div>
@@ -242,10 +251,10 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
         className="custom-scrollbar flex-1 overflow-y-auto overflow-x-hidden bg-[#F6FAFD] px-4 pt-4 pb-6"
       >
         {!hasUserMessages && (
-          <div className="mb-4 rounded-2xl border border-sky-100 bg-white px-4 py-4 shadow-sm">
+          <div className="mb-4 rounded-[1.75rem] border border-sky-100 bg-white px-4 py-4 shadow-sm">
             <h3 className="text-base font-black text-slate-900">ลองถามจากหัวข้อใกล้ตัว</h3>
             <p className="mt-1 text-sm leading-6 text-slate-500">
-              กดคำถามตัวอย่างได้ทันที หรือพิมพ์คำถามของคุณเองด้านล่าง
+              แตะคำถามตัวอย่างได้ทันที หรือพิมพ์คำถามของคุณเองด้านล่าง
             </p>
 
             <div className="mt-4 flex flex-wrap gap-2.5">
@@ -255,7 +264,7 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
                   type="button"
                   onClick={() => handleSend(prompt.text)}
                   disabled={isLoading}
-                  className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700 active:scale-[0.98]"
+                  className="touch-target rounded-full border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700 active:scale-[0.98]"
                 >
                   {prompt.label}
                 </button>
@@ -267,12 +276,28 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
         <div className="space-y-4">
           {messages.map((msg) => (
             <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`flex max-w-[88%] items-start gap-2.5 ${msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl ${msg.sender === 'user' ? 'bg-sky-600 text-white' : 'border border-sky-100 bg-white text-sky-600'}`}>
+              <div
+                className={`flex max-w-[88%] items-start gap-2.5 ${
+                  msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'
+                }`}
+              >
+                <div
+                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl ${
+                    msg.sender === 'user'
+                      ? 'bg-sky-600 text-white'
+                      : 'border border-sky-100 bg-white text-sky-600'
+                  }`}
+                >
                   {msg.sender === 'user' ? <User size={16} /> : <Bot size={16} />}
                 </div>
 
-                <div className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-[15px] leading-7 shadow-sm ${msg.sender === 'user' ? 'rounded-tr-md bg-sky-600 text-white' : 'rounded-tl-md border border-sky-100 bg-white text-slate-700'}`}>
+                <div
+                  className={`whitespace-pre-wrap rounded-2xl px-4 py-3 text-[15px] leading-7 shadow-sm ${
+                    msg.sender === 'user'
+                      ? 'rounded-tr-md bg-sky-600 text-white'
+                      : 'rounded-tl-md border border-sky-100 bg-white text-slate-700'
+                  }`}
+                >
                   {msg.text}
                 </div>
               </div>
@@ -294,17 +319,23 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
         </div>
       </div>
 
-      <div className="border-t border-sky-100 bg-white px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="app-safe-bottom sticky bottom-0 z-10 border-t border-sky-100 bg-white/96 px-4 pt-3 backdrop-blur-md">
         <p className="mb-3 text-xs leading-5 text-slate-500">
           คำแนะนำ: พิมพ์เป็นประโยคสั้นและชัดเจน เช่น “ค่าน้ำตาล 180 สูงไหม”
         </p>
 
-        <div className="flex w-full min-w-0 items-stretch gap-3">
+        <div className="flex min-w-0 items-stretch gap-3">
           <button
             type="button"
             onClick={toggleListening}
             disabled={!micState.supported}
-            className={`shrink-0 rounded-2xl p-4 transition-all active:scale-95 ${!micState.supported ? 'cursor-not-allowed bg-slate-100 text-slate-300' : isListening ? 'bg-red-500 text-white shadow-lg shadow-red-100' : 'bg-slate-100 text-slate-600 hover:bg-sky-50 hover:text-sky-600'}`}
+            className={`touch-target shrink-0 rounded-2xl p-4 transition active:scale-95 ${
+              !micState.supported
+                ? 'cursor-not-allowed bg-slate-100 text-slate-300'
+                : isListening
+                  ? 'bg-rose-500 text-white shadow-lg shadow-rose-100'
+                  : 'bg-slate-100 text-slate-600 hover:bg-sky-50 hover:text-sky-600'
+            }`}
             aria-label={isListening ? 'หยุดฟังเสียง' : 'เริ่มฟังเสียง'}
           >
             {isListening ? <MicOff size={22} /> : <Mic size={22} />}
@@ -332,7 +363,11 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
                 type="button"
                 onClick={() => handleSend()}
                 disabled={!input.trim() || isLoading}
-                className={`shrink-0 rounded-2xl px-4 py-3 text-sm font-bold transition-all ${input.trim() && !isLoading ? 'bg-sky-600 text-white shadow-lg shadow-sky-100 active:scale-[0.98]' : 'cursor-not-allowed bg-slate-200 text-slate-400'}`}
+                className={`touch-target shrink-0 rounded-2xl px-4 py-3 text-sm font-bold transition ${
+                  input.trim() && !isLoading
+                    ? 'bg-sky-600 text-white shadow-lg shadow-sky-100 active:scale-[0.98]'
+                    : 'cursor-not-allowed bg-slate-200 text-slate-400'
+                }`}
                 aria-label="ส่งข้อความ"
               >
                 <span className="flex items-center gap-1.5 whitespace-nowrap">
@@ -343,7 +378,9 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
             </div>
 
             <div className="mt-2 flex items-center justify-between gap-2 px-1">
-              <p className="min-w-0 flex-1 text-[11px] font-medium text-slate-400">{micState.message}</p>
+              <p className="min-w-0 flex-1 text-[11px] font-medium text-slate-400">
+                {micState.message}
+              </p>
               <p className="shrink-0 text-[11px] font-bold text-slate-300">{input.length}/1000</p>
             </div>
           </div>
@@ -351,6 +388,4 @@ const ChatBotPage = ({ onBack, userData, initialMessage, onNotice }) => {
       </div>
     </div>
   );
-};
-
-export default ChatBotPage;
+}

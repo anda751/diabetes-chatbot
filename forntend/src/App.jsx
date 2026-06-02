@@ -1,13 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2 } from 'lucide-react';
 import LoginPage from './components/LoginPage';
 import RegisterPage from './components/RegisterPage';
 import ProfileSetupPage from './components/ProfileSetupPage';
-import DashboardPage from './components/DashboardPage';
-import ChatBotPage from './components/ChatBotPage';
-import WeeklyReportPage from './components/WeeklyReportPage';
-import EditProfilePage from './components/EditProfilePage';
-import CategoryDetailPage from './components/CategoryDetailPage';
 import AppDialog from './components/AppDialog';
 import { API_URL } from './config';
 import {
@@ -21,6 +16,11 @@ import {
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
 const DEFAULT_SCREEN = 'login';
+const DashboardPage = lazy(() => import('./components/DashboardPage'));
+const ChatBotPage = lazy(() => import('./components/ChatBotPage'));
+const WeeklyReportPage = lazy(() => import('./components/WeeklyReportPage'));
+const EditProfilePage = lazy(() => import('./components/EditProfilePage'));
+const CategoryDetailPage = lazy(() => import('./components/CategoryDetailPage'));
 
 const buildAppUrl = (screen) => {
   if (typeof window === 'undefined') {
@@ -417,25 +417,32 @@ function App() {
   };
 
   const isAppReady = !isCheckingSession;
+  const screenLoader = (
+    <div className="min-h-[40dvh] flex items-center justify-center px-6">
+      <div className="text-center space-y-3">
+        <div className="mx-auto w-10 h-10 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin"></div>
+        <p className="text-sm font-bold text-slate-500">กำลังเปิดหน้าถัดไป...</p>
+      </div>
+    </div>
+  );
 
   return (
-    <div className="min-h-[100dvh] bg-[radial-gradient(circle_at_top,#e0ecff_0%,#f1f5f9_42%,#e5eef8_100%)] flex items-start sm:items-center justify-center font-sans overflow-x-hidden px-0 sm:px-6">
+    <div className="app-shell flex items-start sm:items-center justify-center font-sans overflow-x-hidden">
       <div
         className="
-          relative w-full min-h-[100dvh]
-          sm:w-[414px] sm:h-[896px]
+          app-surface relative w-full
+          sm:h-[896px]
           sm:max-h-[92vh]
-          bg-white
           sm:shadow-[0_25px_70px_rgba(15,23,42,0.18)]
           sm:rounded-[3rem]
           sm:border-[10px] sm:border-slate-900
-          overflow-visible sm:overflow-y-auto transition-all duration-300
+          overflow-hidden transition-all duration-300
         "
       >
         <div className="hidden sm:block absolute top-0 left-1/2 -translate-x-1/2 w-36 h-7 bg-slate-900 rounded-b-3xl z-[100]"></div>
 
         {showToast && (
-          <div className="absolute top-12 left-0 right-0 px-6 z-[110] animate-in slide-in-from-top duration-500">
+          <div className="absolute top-[max(1rem,env(safe-area-inset-top))] left-0 right-0 px-4 sm:px-6 z-[110] animate-in slide-in-from-top duration-500">
             <div className="bg-emerald-500/95 backdrop-blur-md text-white px-5 py-3 rounded-2xl shadow-xl flex items-center justify-center gap-3 border border-emerald-400">
               <CheckCircle2 size={18} />
               <span className="font-black text-sm tracking-tight">บันทึกข้อมูลเรียบร้อย</span>
@@ -443,7 +450,7 @@ function App() {
           </div>
         )}
 
-        <div className="w-full min-h-[100dvh] sm:h-full flex flex-col relative overflow-visible bg-white">
+        <div className="app-screen w-full min-h-[100dvh] sm:h-full flex flex-col relative bg-white">
           <div className="flex-1 min-h-0 overflow-visible custom-scrollbar touch-pan-y">
             {!isAppReady && (
               <div className="min-h-[100dvh] flex items-center justify-center bg-white">
@@ -471,61 +478,71 @@ function App() {
             )}
 
             {isAppReady && currentScreen === 'dashboard' && (
-              <DashboardPage
-                userName={userData?.name}
-                bmi={userData?.bmi}
-                stage={userData?.stage}
-                allergy={userData?.allergy}
-                treatment={userData?.treatment}
-                beforeGlucose={getLatestByPhase('before')}
-                afterGlucose={getLatestByPhase('after')}
-                lastGlucose={glucoseHistory[0]}
-                onSaveGlucose={handleSaveGlucose}
-                onSelectReport={() => navigateToScreen('report')}
-                onEditProfile={() => navigateToScreen('edit_profile')}
-                onLogout={handleLogout}
-                onNotice={showAlert}
-                onSelectChat={(category) =>
-                  category
-                    ? navigateToScreen('category_detail', { category })
-                    : navigateToChat('')
-                }
-              />
+              <Suspense fallback={screenLoader}>
+                <DashboardPage
+                  userName={userData?.name}
+                  bmi={userData?.bmi}
+                  stage={userData?.stage}
+                  allergy={userData?.allergy}
+                  treatment={userData?.treatment}
+                  beforeGlucose={getLatestByPhase('before')}
+                  afterGlucose={getLatestByPhase('after')}
+                  lastGlucose={glucoseHistory[0]}
+                  onSaveGlucose={handleSaveGlucose}
+                  onSelectReport={() => navigateToScreen('report')}
+                  onEditProfile={() => navigateToScreen('edit_profile')}
+                  onLogout={handleLogout}
+                  onNotice={showAlert}
+                  onSelectChat={(category) =>
+                    category
+                      ? navigateToScreen('category_detail', { category })
+                      : navigateToChat('')
+                  }
+                />
+              </Suspense>
             )}
 
             {isAppReady && currentScreen === 'category_detail' && (
-              <CategoryDetailPage
-                category={selectedCategory}
-                userData={userData}
-                onBack={() => goBackInApp('dashboard')}
-                onSelectChat={navigateToChat}
-              />
+              <Suspense fallback={screenLoader}>
+                <CategoryDetailPage
+                  category={selectedCategory}
+                  userData={userData}
+                  onBack={() => goBackInApp('dashboard')}
+                  onSelectChat={navigateToChat}
+                />
+              </Suspense>
             )}
 
             {isAppReady && currentScreen === 'chat' && (
-              <ChatBotPage
-                onBack={() => goBackInApp('dashboard')}
-                userData={{ ...userData, lastGlucose: glucoseHistory[0] }}
-                initialMessage={initialChatMsg}
-                onNotice={showAlert}
-              />
+              <Suspense fallback={screenLoader}>
+                <ChatBotPage
+                  onBack={() => goBackInApp('dashboard')}
+                  userData={{ ...userData, lastGlucose: glucoseHistory[0] }}
+                  initialMessage={initialChatMsg}
+                  onNotice={showAlert}
+                />
+              </Suspense>
             )}
 
             {isAppReady && currentScreen === 'edit_profile' && (
-              <EditProfilePage
-                initialData={userData}
-                onSave={handleSaveData}
-                onCancel={() => goBackInApp('dashboard')}
-                onNotice={showAlert}
-              />
+              <Suspense fallback={screenLoader}>
+                <EditProfilePage
+                  initialData={userData}
+                  onSave={handleSaveData}
+                  onCancel={() => goBackInApp('dashboard')}
+                  onNotice={showAlert}
+                />
+              </Suspense>
             )}
 
             {isAppReady && currentScreen === 'report' && (
-              <WeeklyReportPage
-                onBack={() => goBackInApp('dashboard')}
-                glucoseHistory={glucoseHistory}
-                onConsultAI={navigateToChat}
-              />
+              <Suspense fallback={screenLoader}>
+                <WeeklyReportPage
+                  onBack={() => goBackInApp('dashboard')}
+                  glucoseHistory={glucoseHistory}
+                  onConsultAI={navigateToChat}
+                />
+              </Suspense>
             )}
           </div>
         </div>

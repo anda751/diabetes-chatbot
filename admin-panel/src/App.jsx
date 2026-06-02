@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   BarChart3,
@@ -9,21 +9,11 @@ import {
   Search,
   TrendingUp,
 } from 'lucide-react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
 import { API_URL } from './config';
 
 const COLORS = ['#2563eb', '#0ea5e9', '#14b8a6', '#22c55e', '#f59e0b', '#ef4444'];
+const BarPanel = lazy(() => import('./components/BarPanel.jsx'));
+const PiePanel = lazy(() => import('./components/PiePanel.jsx'));
 
 const NAV_ITEMS = [
   { id: 'overview', label: 'ภาพรวมระบบ', icon: LayoutDashboard },
@@ -138,9 +128,7 @@ function App() {
     const keyword = search.trim().toLowerCase();
     if (!keyword) return stats;
 
-    return stats.filter((item) =>
-      item.question_text.toLowerCase().includes(keyword)
-    );
+    return stats.filter((item) => item.question_text.toLowerCase().includes(keyword));
   }, [search, stats]);
 
   const totalQuestions = useMemo(
@@ -163,7 +151,8 @@ function App() {
     [filteredStats]
   );
 
-  const activeTitle = NAV_ITEMS.find((item) => item.id === activeView)?.label || 'ภาพรวมระบบ';
+  const activeTitle =
+    NAV_ITEMS.find((item) => item.id === activeView)?.label || 'ภาพรวมระบบ';
 
   return (
     <div className="min-h-screen bg-[#f3f6fb] text-slate-900">
@@ -308,7 +297,15 @@ function TopBar({ title, search, setSearch, loading, error, lastUpdated, onRefre
   );
 }
 
-function OverviewView({ stats, chartData, totalQuestions, averageCount, topIntent, filteredStats, search }) {
+function OverviewView({
+  stats,
+  chartData,
+  totalQuestions,
+  averageCount,
+  topIntent,
+  filteredStats,
+  search,
+}) {
   return (
     <>
       <section className="mt-7 grid grid-cols-4 gap-5">
@@ -343,8 +340,12 @@ function OverviewView({ stats, chartData, totalQuestions, averageCount, topInten
       </section>
 
       <section className="mt-7 grid grid-cols-[1.35fr_0.85fr] gap-6">
-        <BarPanel chartData={chartData} search={search} />
-        <PiePanel chartData={chartData} />
+        <Suspense fallback={<ChartPanelFallback />}>
+          <BarPanel chartData={chartData} search={search} colors={COLORS} />
+        </Suspense>
+        <Suspense fallback={<ChartPanelFallback compact />}>
+          <PiePanel chartData={chartData} colors={COLORS} />
+        </Suspense>
       </section>
 
       <section className="mt-7">
@@ -359,11 +360,18 @@ function OverviewView({ stats, chartData, totalQuestions, averageCount, topInten
 function AnalyticsView({ chartData, filteredStats, search }) {
   return (
     <section className="mt-7 grid grid-cols-[1.4fr_0.8fr] gap-6">
-      <BarPanel chartData={chartData} search={search} tall />
+      <Suspense fallback={<ChartPanelFallback tall />}>
+        <BarPanel chartData={chartData} search={search} tall colors={COLORS} />
+      </Suspense>
       <div className="space-y-6">
-        <PiePanel chartData={chartData} />
+        <Suspense fallback={<ChartPanelFallback compact />}>
+          <PiePanel chartData={chartData} colors={COLORS} />
+        </Suspense>
         <Panel title="รายการที่อยู่ในกราฟ" description={`นำ ${Math.min(filteredStats.length, 8)} รายการแรกมาแสดง`}>
-          <RankList rows={filteredStats.slice(0, 6)} totalQuestions={filteredStats.reduce((sum, item) => sum + item.count, 0)} />
+          <RankList
+            rows={filteredStats.slice(0, 6)}
+            totalQuestions={filteredStats.reduce((sum, item) => sum + item.count, 0)}
+          />
         </Panel>
       </div>
     </section>
@@ -390,87 +398,17 @@ function TableView({ filteredStats, totalQuestions, search }) {
   );
 }
 
-function BarPanel({ chartData, search, tall = false }) {
+function ChartPanelFallback({ tall = false, compact = false }) {
   return (
-    <Panel title="อันดับคำถามยอดนิยม" description="แสดง intent ที่ถูกถามบ่อยที่สุด">
-      <div className={tall ? 'h-[540px]' : 'h-[360px]'}>
-        {chartData.length ? (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart
-              data={chartData}
-              layout="vertical"
-              margin={{ top: 8, right: 18, left: 8, bottom: 8 }}
-            >
-              <CartesianGrid strokeDasharray="3 3" horizontal stroke="#e2e8f0" />
-              <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: '#64748b' }} />
-              <YAxis
-                type="category"
-                dataKey="shortName"
-                width={160}
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#334155', fontSize: 12 }}
-              />
-              <Tooltip content={<ChartTooltip />} cursor={{ fill: '#f8fafc' }} />
-              <Bar dataKey="value" radius={[6, 6, 6, 6]}>
-                {chartData.map((item, index) => (
-                  <Cell key={item.name} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        ) : (
-          <EmptyState text={search ? 'ไม่พบข้อมูลตามคำค้นหา' : 'ยังไม่มีข้อมูลสถิติ'} />
-        )}
+    <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="mb-5 space-y-2">
+        <div className="h-6 w-40 rounded bg-slate-100" />
+        <div className="h-4 w-56 rounded bg-slate-100" />
       </div>
-    </Panel>
-  );
-}
-
-function PiePanel({ chartData }) {
-  return (
-    <Panel title="สัดส่วน intent" description="ดูภาพรวมของหัวข้อที่ถูกถามมากที่สุด">
-      <div className="h-[280px]">
-        {chartData.length ? (
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={chartData.slice(0, 6)}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={58}
-                outerRadius={94}
-                paddingAngle={4}
-              >
-                {chartData.slice(0, 6).map((item, index) => (
-                  <Cell key={item.name} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip content={<ChartTooltip />} />
-            </PieChart>
-          </ResponsiveContainer>
-        ) : (
-          <EmptyState text="ยังไม่มีข้อมูลสำหรับสร้างกราฟ" />
-        )}
-      </div>
-
-      <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
-        {chartData.slice(0, 6).map((item, index) => (
-          <div key={item.name} className="flex items-center gap-3">
-            <span
-              className="h-3 w-3 rounded-full"
-              style={{ backgroundColor: COLORS[index % COLORS.length] }}
-            />
-            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-700">
-              {item.name}
-            </p>
-            <span className="rounded bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">
-              {item.value} ครั้ง
-            </span>
-          </div>
-        ))}
-      </div>
-    </Panel>
+      <div
+        className={`${tall ? 'h-[540px]' : compact ? 'h-[280px]' : 'h-[360px]'} animate-pulse rounded-lg bg-slate-100`}
+      />
+    </div>
   );
 }
 
@@ -605,19 +543,6 @@ function EmptyState({ text }) {
   return (
     <div className="flex h-full min-h-48 items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm font-semibold text-slate-400">
       {text}
-    </div>
-  );
-}
-
-function ChartTooltip({ active, payload }) {
-  if (!active || !payload?.length) return null;
-
-  const item = payload[0];
-  return (
-    <div className="max-w-xs rounded-lg border border-slate-200 bg-slate-900 px-4 py-3 text-white shadow-xl">
-      <p className="text-xs font-black uppercase tracking-[0.12em] text-sky-300">Intent</p>
-      <p className="mt-1 text-sm font-semibold leading-6">{item.payload?.name}</p>
-      <p className="mt-2 text-sm font-bold">จำนวน {item.value} ครั้ง</p>
     </div>
   );
 }

@@ -22,7 +22,7 @@ function parseThaiDate(dateStr) {
     let year = parseInt(parts[2], 10);
     if (year > 2500) year -= 543;
     return new Date(year, month, day);
-  } catch (_error) {
+  } catch {
     return null;
   }
 }

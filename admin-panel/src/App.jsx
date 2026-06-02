@@ -488,7 +488,9 @@ function DataTable({ rows, totalQuestions, search, compact = false }) {
   );
 }
 
-function SidebarItem({ icon: Icon, label, active = false, onClick }) {
+function SidebarItem({ icon, label, active = false, onClick }) {
+  const IconComponent = icon;
+
   return (
     <button
       type="button"
@@ -499,7 +501,7 @@ function SidebarItem({ icon: Icon, label, active = false, onClick }) {
           : 'text-slate-300 hover:bg-white/5 hover:text-white'
       }`}
     >
-      <Icon size={18} />
+      <IconComponent size={18} />
       <span>{label}</span>
     </button>
   );

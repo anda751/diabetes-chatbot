@@ -41,7 +41,7 @@ export default function RegisterPage({ onBack, onRegisterSuccess, onNotice }) {
           message: data.message || data.error || 'กรุณาลองใหม่อีกครั้ง',
         });
       }
-    } catch (_error) {
+    } catch {
       onNotice?.({
         title: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ',
         message: 'ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้ กรุณาลองใหม่อีกครั้ง',

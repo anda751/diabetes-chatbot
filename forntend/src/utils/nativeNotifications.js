@@ -62,7 +62,7 @@ export async function ensureNativeReminderNotificationsReady() {
   try {
     const exactPermission = await LocalNotifications.checkExactNotificationSetting();
     exactGranted = exactPermission.exact_alarm === 'granted';
-  } catch (_error) {
+  } catch {
     exactGranted = true;
   }
 

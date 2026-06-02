@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Bot, ChevronLeft, Mic, MicOff, Send, Sparkles, User } from 'lucide-react';
 import { API_URL } from '../config';
 import { CHAT_QUICK_PROMPTS } from '../data/aiTopics';
@@ -128,13 +128,6 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
     return () => window.visualViewport?.removeEventListener('resize', handleViewportShift);
   }, []);
 
-  useEffect(() => {
-    if (initialMessage && !hasSentInitial.current) {
-      handleSend(initialMessage);
-      hasSentInitial.current = true;
-    }
-  }, [initialMessage]);
-
   const ensureMicrophoneAccess = async () => {
     if (!navigator.mediaDevices?.getUserMedia) return true;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -180,7 +173,7 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
     }
   };
 
-  const handleSend = async (overrideMsg) => {
+  const handleSend = useCallback(async (overrideMsg) => {
     const textToSend = typeof overrideMsg === 'string' ? overrideMsg : input;
     if (isLoading) return;
 
@@ -236,7 +229,14 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [input, isLoading, onNotice, userData]);
+
+  useEffect(() => {
+    if (initialMessage && !hasSentInitial.current) {
+      handleSend(initialMessage);
+      hasSentInitial.current = true;
+    }
+  }, [handleSend, initialMessage]);
 
   return (
     <div className="app-page app-page-transition mx-auto flex max-w-md flex-col overflow-x-hidden bg-[#F6FAFD] sm:h-full">

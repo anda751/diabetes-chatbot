@@ -15,6 +15,7 @@ import { initDB } from "./database.js";
 dotenv.config();
 
 const app = express();
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:5173",
@@ -22,6 +23,26 @@ const DEFAULT_ALLOWED_ORIGINS = [
   "http://localhost:5174",
   "http://127.0.0.1:5174",
 ];
+
+function readEnv(name) {
+  const value = process.env[name];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function getRequiredEnv(name, { allowDevFallback = false, fallbackValue = "" } = {}) {
+  const value = readEnv(name);
+  if (value) return value;
+
+  if (!IS_PRODUCTION && allowDevFallback && fallbackValue) {
+    return fallbackValue;
+  }
+
+  throw new Error(
+    `Missing required environment variable: ${name}${
+      IS_PRODUCTION ? " (required in production)" : ""
+    }`
+  );
+}
 
 function normalizeOriginValue(value) {
   return typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
@@ -109,8 +130,10 @@ const USERNAME_REGEX = /^[A-Za-z0-9._-]{4,20}$/;
 
 const SESSION_COOKIE_NAME = "diabetes_session";
 const SESSION_TTL_MS = Number.parseInt(process.env.SESSION_TTL_MS || "", 10) || 1000 * 60 * 60 * 24 * 7;
-const SESSION_SECRET =
-  process.env.SESSION_SECRET || process.env.GEMINI_API_KEY || "local-dev-session-secret";
+const SESSION_SECRET = getRequiredEnv("SESSION_SECRET", {
+  allowDevFallback: true,
+  fallbackValue: "local-dev-session-secret",
+});
 const SESSION_COOKIE_SAME_SITE = process.env.SESSION_COOKIE_SAME_SITE?.trim() || "Lax";
 const SESSION_COOKIE_SECURE =
   process.env.SESSION_COOKIE_SECURE === "true" ||
@@ -123,16 +146,28 @@ const ai = new GoogleGenAI({
 
 const db = await initDB();
 const REMINDER_TIMEZONE = process.env.REMINDER_TIMEZONE || "Asia/Bangkok";
-const VAPID_SUBJECT =
-  process.env.VAPID_SUBJECT || process.env.PUSH_CONTACT || "mailto:support@example.com";
-const generatedVapidKeys = webpush.generateVAPIDKeys();
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY?.trim() || generatedVapidKeys.publicKey;
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY?.trim() || generatedVapidKeys.privateKey;
+const VAPID_SUBJECT = getRequiredEnv("VAPID_SUBJECT", {
+  allowDevFallback: true,
+  fallbackValue: "mailto:support@example.com",
+});
+const generatedVapidKeys = !IS_PRODUCTION ? webpush.generateVAPIDKeys() : null;
+const VAPID_PUBLIC_KEY =
+  readEnv("VAPID_PUBLIC_KEY") ||
+  getRequiredEnv("VAPID_PUBLIC_KEY", {
+    allowDevFallback: true,
+    fallbackValue: generatedVapidKeys?.publicKey || "",
+  });
+const VAPID_PRIVATE_KEY =
+  readEnv("VAPID_PRIVATE_KEY") ||
+  getRequiredEnv("VAPID_PRIVATE_KEY", {
+    allowDevFallback: true,
+    fallbackValue: generatedVapidKeys?.privateKey || "",
+  });
 let reminderSchedulerRunning = false;
 
 webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
-if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+if (!IS_PRODUCTION && (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY)) {
   console.warn(
     "Push notifications are using temporary VAPID keys. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY for stable production subscriptions."
   );

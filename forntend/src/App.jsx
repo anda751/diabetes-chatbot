@@ -78,7 +78,7 @@ function loadMealRemindersFromStorage() {
   try {
     const saved = window.localStorage.getItem(REMINDER_STORAGE_KEY);
     return saved ? JSON.parse(saved) : [];
-  } catch (_error) {
+  } catch {
     return [];
   }
 }
@@ -272,7 +272,7 @@ export default function App() {
       gainNode.connect(context.destination);
       oscillator.start();
       oscillator.stop(context.currentTime + 0.45);
-    } catch (_error) {
+    } catch {
       // Ignore audio failures on restricted browsers.
     }
   }, []);
@@ -309,7 +309,7 @@ export default function App() {
         credentials: 'include',
         body: JSON.stringify({ endpoint }),
       });
-    } catch (_error) {
+    } catch {
       // Ignore cleanup failures.
     } finally {
       if (typeof window !== 'undefined') {
@@ -589,7 +589,7 @@ export default function App() {
           Object.entries(storedAlerts).filter(([key]) => key.startsWith(todayPrefix))
         );
         window.localStorage.setItem(REMINDER_ALERTS_KEY, JSON.stringify(prunedAlerts));
-      } catch (_error) {
+      } catch {
         // Ignore storage issues and continue with current alert.
       }
 
@@ -611,7 +611,7 @@ export default function App() {
             window.focus();
             notification.close();
           };
-        } catch (_error) {
+        } catch {
           // Ignore Notification constructor failures.
         }
       }
@@ -837,7 +837,7 @@ export default function App() {
           console.error('Push subscription sync error:', error);
         }
       }
-    } catch (_error) {
+    } catch {
       showAlert({
         title: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ',
         message: 'การเชื่อมต่อเซิร์ฟเวอร์ขัดข้อง กรุณาลองใหม่อีกครั้ง',
@@ -980,7 +980,7 @@ export default function App() {
 
       setUserData(responseData.user);
       navigateToScreen('dashboard', { replace: true });
-    } catch (_error) {
+    } catch {
       showAlert({
         title: 'เชื่อมต่อไม่สำเร็จ',
         message: 'เกิดข้อผิดพลาดในการเชื่อมต่อ กรุณาลองใหม่อีกครั้ง',

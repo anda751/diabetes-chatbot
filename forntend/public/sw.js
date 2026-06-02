@@ -17,7 +17,7 @@ self.addEventListener('push', (event) => {
   if (event.data) {
     try {
       payload = { ...fallbackPayload, ...event.data.json() };
-    } catch (_error) {
+    } catch {
       payload = fallbackPayload;
     }
   }

@@ -50,7 +50,7 @@ function loadMealReminders() {
     return parsed.map((item, index) =>
       normalizeReminder(item, DEFAULT_MEAL_REMINDERS[index] || DEFAULT_MEAL_REMINDERS[0])
     );
-  } catch (_error) {
+  } catch {
     return DEFAULT_MEAL_REMINDERS;
   }
 }

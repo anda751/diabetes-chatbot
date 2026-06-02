@@ -98,6 +98,7 @@ export default function App() {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [initialChatMsg, setInitialChatMsg] = useState('');
   const [showToast, setShowToast] = useState(false);
+  const [reminderToast, setReminderToast] = useState(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [notificationPermission, setNotificationPermission] = useState(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported';
@@ -115,6 +116,7 @@ export default function App() {
 
   const historyIndexRef = useRef(0);
   const toastTimerRef = useRef(null);
+  const reminderToastTimerRef = useRef(null);
   const reminderDialogRef = useRef('');
 
   const closeDialog = useCallback(() => {
@@ -318,6 +320,9 @@ export default function App() {
       if (toastTimerRef.current) {
         window.clearTimeout(toastTimerRef.current);
       }
+      if (reminderToastTimerRef.current) {
+        window.clearTimeout(reminderToastTimerRef.current);
+      }
     },
     []
   );
@@ -374,10 +379,16 @@ export default function App() {
 
       if (document.visibilityState === 'visible' && reminderDialogRef.current !== alertKey) {
         reminderDialogRef.current = alertKey;
-        showAlert({
+        setReminderToast({
           title,
-          message: `${body}\n\nหากต้องการให้แจ้งเตือนต่อเนื่อง ควรเปิดเว็บแอปนี้ค้างไว้หรือเพิ่มเป็นแอปบนหน้าจอหลัก`,
+          message: `${body} ระบบจะแจ้งเตือนต่อเมื่อเว็บแอปยังเปิดอยู่`,
         });
+        if (reminderToastTimerRef.current) {
+          window.clearTimeout(reminderToastTimerRef.current);
+        }
+        reminderToastTimerRef.current = window.setTimeout(() => {
+          setReminderToast(null);
+        }, 5000);
       }
     };
 
@@ -692,6 +703,26 @@ export default function App() {
             <div className="animate-fade-up flex items-center justify-center gap-3 rounded-2xl border border-emerald-400 bg-emerald-500/95 px-5 py-3 text-white shadow-xl backdrop-blur-md">
               <CheckCircle2 size={18} />
               <span className="text-sm font-black tracking-tight">บันทึกข้อมูลเรียบร้อย</span>
+            </div>
+          </div>
+        )}
+
+        {reminderToast && (
+          <div className="pointer-events-none absolute left-0 right-0 top-[max(4.75rem,calc(env(safe-area-inset-top)+4rem))] z-[109] px-4 sm:px-6">
+            <div className="animate-fade-up pointer-events-auto rounded-2xl border border-sky-200 bg-white/96 px-4 py-3 shadow-xl backdrop-blur-md">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-black text-slate-900">{reminderToast.title}</p>
+                  <p className="mt-1 text-sm leading-6 text-slate-500">{reminderToast.message}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReminderToast(null)}
+                  className="touch-target rounded-xl px-3 py-2 text-xs font-black text-sky-600 transition hover:bg-sky-50"
+                >
+                  ปิด
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -392,7 +392,7 @@ export default function App() {
           const previous = prev.find((entry) => String(entry.id) === String(item.id));
           return {
             ...item,
-            isDone: previous?.isDone || false,
+            completedSlotKey: previous?.completedSlotKey || '',
           };
         })
       );
@@ -709,7 +709,7 @@ export default function App() {
             const previous = prev.find((entry) => String(entry.id) === String(item.id));
             return {
               ...item,
-              isDone: previous?.isDone || false,
+              completedSlotKey: previous?.completedSlotKey || '',
             };
           })
         );

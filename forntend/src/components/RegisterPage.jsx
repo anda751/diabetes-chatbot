@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, Loader2, Lock, User, UserCircle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Loader2, Lock, UserCircle } from 'lucide-react';
 import { API_URL } from '../config';
-import { validateName, validatePassword, validateUsername } from '../utils/validation';
+import { validatePassword, validateUsername } from '../utils/validation';
 
 export default function RegisterPage({ onBack, onRegisterSuccess, onNotice }) {
-  const [formData, setFormData] = useState({ username: '', password: '', name: '' });
+  const [formData, setFormData] = useState({ username: '', password: '' });
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (event) => {
@@ -12,8 +12,7 @@ export default function RegisterPage({ onBack, onRegisterSuccess, onNotice }) {
 
     const validationError =
       validateUsername(formData.username) ||
-      validatePassword(formData.password) ||
-      validateName(formData.name);
+      validatePassword(formData.password);
 
     if (validationError) {
       onNotice?.({
@@ -69,14 +68,14 @@ export default function RegisterPage({ onBack, onRegisterSuccess, onNotice }) {
         </div>
         <h2 className="text-3xl font-black tracking-tight text-slate-900">สร้างบัญชีใหม่</h2>
         <p className="mt-2 text-sm leading-6 text-slate-500">
-          กรอกข้อมูลพื้นฐานเพื่อเริ่มใช้งานระบบดูแลสุขภาพบนมือถือได้สะดวกขึ้น
+          สมัครด้วยชื่อผู้ใช้งานและรหัสผ่านก่อน แล้วค่อยกรอกชื่อและข้อมูลสุขภาพในขั้นตอนถัดไป
         </p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         <Field
           label="ชื่อผู้ใช้งาน"
-          icon={<User size={20} />}
+          icon={<UserCircle size={20} />}
           placeholder="กรอกชื่อผู้ใช้งาน"
           value={formData.username}
           onChange={(event) =>
@@ -93,14 +92,6 @@ export default function RegisterPage({ onBack, onRegisterSuccess, onNotice }) {
           value={formData.password}
           onChange={(event) => setFormData((prev) => ({ ...prev, password: event.target.value }))}
           autoComplete="new-password"
-        />
-
-        <Field
-          label="ชื่อ-นามสกุล"
-          icon={<UserCircle size={20} />}
-          placeholder="กรอกชื่อ-นามสกุล"
-          value={formData.name}
-          onChange={(event) => setFormData((prev) => ({ ...prev, name: event.target.value }))}
         />
 
         <button

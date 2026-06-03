@@ -806,13 +806,11 @@ app.get("/api/health", (_req, res) => {
 app.post("/api/register", async (req, res) => {
   const username = normalizeText(req.body?.username);
   const password = typeof req.body?.password === "string" ? req.body.password : "";
-  const name = normalizeText(req.body?.name);
+  const requestedName = normalizeText(req.body?.name);
+  const name = requestedName || username;
 
   try {
-    const validationError =
-      validateUsername(username) ||
-      validatePassword(password) ||
-      validateName(name);
+    const validationError = validateUsername(username) || validatePassword(password);
 
     if (validationError) {
       return res.status(400).json({ message: validationError });

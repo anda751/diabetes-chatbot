@@ -1,34 +1,73 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { SpeechRecognition } from '@capacitor-community/speech-recognition';
 import { Bot, ChevronLeft, Mic, MicOff, Send, Sparkles, User } from 'lucide-react';
 import { API_URL } from '../config';
 import { CHAT_QUICK_PROMPTS } from '../data/aiTopics';
+import { isNativeAndroidApp } from '../utils/nativeNotifications';
 import { validateChatMessage } from '../utils/validation';
+
+const IS_NATIVE_ANDROID = isNativeAndroidApp();
 
 const isLocalHostname = (hostname) =>
   hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
 
-function getVoiceSupport() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+async function getVoiceSupport() {
+  if (IS_NATIVE_ANDROID) {
+    try {
+      const [{ available }, permission] = await Promise.all([
+        SpeechRecognition.available(),
+        SpeechRecognition.checkPermissions(),
+      ]);
+
+      if (!available) {
+        return {
+          supported: false,
+          mode: 'native',
+          message: 'อุปกรณ์นี้ยังไม่รองรับการพูดเป็นข้อความในแอป',
+        };
+      }
+
+      return {
+        supported: true,
+        mode: 'native',
+        message:
+          permission.speechRecognition === 'granted'
+            ? 'แตะปุ่มไมค์แล้วพูดคำถามได้เลย'
+            : 'แตะปุ่มไมค์เพื่ออนุญาตการใช้ไมโครโฟนก่อน',
+      };
+    } catch {
+      return {
+        supported: false,
+        mode: 'native',
+        message: 'ยังไม่สามารถเปิดไมโครโฟนของแอปได้ในขณะนี้',
+      };
+    }
+  }
+
+  const BrowserSpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   const secureContext = window.isSecureContext || isLocalHostname(window.location.hostname);
 
-  if (!SpeechRecognition) {
+  if (!BrowserSpeechRecognition) {
     return {
       supported: false,
-      message: 'เบราว์เซอร์นี้ยังไม่รองรับการพิมพ์ด้วยเสียง แนะนำให้ใช้ Google Chrome',
+      mode: 'web',
+      message: 'เบราว์เซอร์นี้ยังไม่รองรับการพูดเป็นข้อความ แนะนำให้ใช้ Google Chrome',
     };
   }
 
   if (!secureContext) {
     return {
       supported: false,
-      message: 'การพิมพ์ด้วยเสียงบน Chrome มือถือจะใช้ได้เมื่อเปิดผ่าน HTTPS หรือ localhost เท่านั้น',
+      mode: 'web',
+      message: 'การพูดเป็นข้อความบน Chrome จะใช้ได้เมื่อเปิดผ่าน HTTPS หรือ localhost เท่านั้น',
     };
   }
 
   return {
     supported: true,
-    message: 'หมอ AI จะตอบตามข้อมูลสุขภาพที่บันทึกไว้',
-    SpeechRecognition,
+    mode: 'web',
+    message: 'แตะปุ่มไมค์แล้วพูดคำถามได้เลย',
+    BrowserSpeechRecognition,
   };
 }
 
@@ -36,7 +75,7 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
   const [messages, setMessages] = useState([
     {
       id: 1,
-      text: `สวัสดีค่ะคุณ ${userData?.name || 'ผู้ใช้งาน'} ถามเรื่องอาหาร อาการ ค่าน้ำตาล หรือการดูแลเบาหวานได้เลยนะคะ`,
+      text: `สวัสดีค่ะคุณ ${userData?.name || 'ผู้ใช้งาน'} ถามเรื่องอาหาร อาการ ค่าน้ำตาล หรือการดูแลตัวเองได้เลยนะคะ`,
       sender: 'bot',
     },
   ]);
@@ -45,13 +84,14 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
   const [isListening, setIsListening] = useState(false);
   const [micState, setMicState] = useState({
     supported: false,
+    mode: IS_NATIVE_ANDROID ? 'native' : 'web',
     message: 'กำลังตรวจสอบไมโครโฟน...',
   });
 
   const scrollContainerRef = useRef(null);
   const composerRef = useRef(null);
   const inputRef = useRef(null);
-  const hasSentInitial = useRef(false);
+  const hasSentInitialRef = useRef(false);
   const recognitionRef = useRef(null);
 
   const hasUserMessages = useMemo(
@@ -60,44 +100,60 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
   );
 
   useEffect(() => {
-    const support = getVoiceSupport();
-    setMicState({ supported: support.supported, message: support.message });
+    let isMounted = true;
 
-    if (!support.supported) {
-      recognitionRef.current = null;
-      return;
-    }
+    const initVoiceSupport = async () => {
+      const support = await getVoiceSupport();
+      if (!isMounted) return;
 
-    recognitionRef.current = new support.SpeechRecognition();
-    recognitionRef.current.lang = 'th-TH';
-    recognitionRef.current.continuous = false;
-    recognitionRef.current.interimResults = false;
-    recognitionRef.current.maxAlternatives = 1;
-
-    recognitionRef.current.onstart = () => setIsListening(true);
-    recognitionRef.current.onend = () => setIsListening(false);
-    recognitionRef.current.onresult = (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript || '';
-      setInput(transcript);
-      setIsListening(false);
-    };
-    recognitionRef.current.onerror = (event) => {
-      setIsListening(false);
-
-      const errorMap = {
-        'not-allowed': 'Chrome ยังไม่ได้รับสิทธิ์ใช้ไมโครโฟน กรุณาอนุญาตไมโครโฟนแล้วลองใหม่',
-        'service-not-allowed':
-          'Chrome ยังไม่ได้รับสิทธิ์ใช้ไมโครโฟน กรุณาอนุญาตไมโครโฟนแล้วลองใหม่',
-        'audio-capture': 'ไม่พบไมโครโฟน หรือไมโครโฟนยังไม่พร้อมใช้งาน',
-        network: 'การพิมพ์ด้วยเสียงมีปัญหาด้านเครือข่าย กรุณาลองใหม่อีกครั้ง',
-      };
-
-      onNotice?.({
-        title: 'ใช้งานไมโครโฟนไม่สำเร็จ',
-        message:
-          errorMap[event.error] ||
-          'ยังไม่สามารถรับเสียงได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง',
+      setMicState({
+        supported: support.supported,
+        mode: support.mode || (IS_NATIVE_ANDROID ? 'native' : 'web'),
+        message: support.message,
       });
+
+      if (!support.supported || support.mode !== 'web') {
+        recognitionRef.current = null;
+        return;
+      }
+
+      recognitionRef.current = new support.BrowserSpeechRecognition();
+      recognitionRef.current.lang = 'th-TH';
+      recognitionRef.current.continuous = false;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.maxAlternatives = 1;
+
+      recognitionRef.current.onstart = () => setIsListening(true);
+      recognitionRef.current.onend = () => setIsListening(false);
+      recognitionRef.current.onresult = (event) => {
+        const transcript = event.results?.[0]?.[0]?.transcript || '';
+        setInput(transcript);
+        setIsListening(false);
+      };
+      recognitionRef.current.onerror = (event) => {
+        setIsListening(false);
+
+        const errorMap = {
+          'not-allowed': 'Chrome ยังไม่ได้รับสิทธิ์ใช้ไมโครโฟน กรุณาอนุญาตก่อนแล้วลองใหม่',
+          'service-not-allowed':
+            'Chrome ยังไม่ได้รับสิทธิ์ใช้ไมโครโฟน กรุณาอนุญาตก่อนแล้วลองใหม่',
+          'audio-capture': 'ไม่พบไมโครโฟน หรือไมโครโฟนยังไม่พร้อมใช้งาน',
+          network: 'การพูดเป็นข้อความมีปัญหาด้านเครือข่าย กรุณาลองใหม่อีกครั้ง',
+        };
+
+        onNotice?.({
+          title: 'ใช้งานไมโครโฟนไม่สำเร็จ',
+          message:
+            errorMap[event.error] ||
+            'ยังไม่สามารถรับเสียงได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง',
+        });
+      };
+    };
+
+    initVoiceSupport();
+
+    return () => {
+      isMounted = false;
     };
   }, [onNotice]);
 
@@ -128,21 +184,66 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
     return () => window.visualViewport?.removeEventListener('resize', handleViewportShift);
   }, []);
 
-  const ensureMicrophoneAccess = async () => {
+  const ensureWebMicrophoneAccess = async () => {
     if (!navigator.mediaDevices?.getUserMedia) return true;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     stream.getTracks().forEach((track) => track.stop());
     return true;
   };
 
+  const startNativeListening = useCallback(async () => {
+    const permission = await SpeechRecognition.requestPermissions();
+    if (permission.speechRecognition !== 'granted') {
+      setMicState((prev) => ({
+        ...prev,
+        supported: false,
+        message: 'ยังไม่ได้อนุญาตไมโครโฟนของแอป',
+      }));
+      onNotice?.({
+        title: 'ยังใช้ไมโครโฟนไม่ได้',
+        message: 'กรุณาอนุญาตการใช้ไมโครโฟนของแอปก่อน แล้วลองอีกครั้ง',
+      });
+      return;
+    }
+
+    setMicState((prev) => ({
+      ...prev,
+      supported: true,
+      message: 'แตะปุ่มไมค์แล้วพูดคำถามได้เลย',
+    }));
+
+    setIsListening(true);
+    const { matches = [] } = await SpeechRecognition.start({
+      language: 'th-TH',
+      maxResults: 1,
+      prompt: 'พูดคำถามของคุณ',
+      popup: true,
+      partialResults: false,
+    });
+
+    const transcript = matches.find((item) => String(item || '').trim()) || '';
+    if (transcript) {
+      setInput(transcript);
+    }
+  }, [onNotice]);
+
   const toggleListening = async () => {
     if (isListening) {
-      recognitionRef.current?.stop();
+      if (micState.mode === 'native') {
+        try {
+          await SpeechRecognition.stop();
+        } catch {
+          // Ignore stop failures when the native dialog is already closing.
+        }
+      } else {
+        recognitionRef.current?.stop();
+      }
+
       setIsListening(false);
       return;
     }
 
-    if (!micState.supported || !recognitionRef.current) {
+    if (!micState.supported) {
       onNotice?.({
         title: 'ยังใช้ไมโครโฟนไม่ได้',
         message: micState.message,
@@ -151,13 +252,24 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
     }
 
     try {
-      await ensureMicrophoneAccess();
-      recognitionRef.current.start();
+      if (micState.mode === 'native') {
+        await startNativeListening();
+        return;
+      }
+
+      await ensureWebMicrophoneAccess();
+      recognitionRef.current?.start();
     } catch (error) {
       let message =
-        'ยังไม่สามารถเปิดไมโครโฟนได้ กรุณาตรวจสอบสิทธิ์ไมโครโฟนของ Chrome แล้วลองใหม่';
+        micState.mode === 'native'
+          ? 'ยังไม่สามารถเปิดไมโครโฟนของแอปได้ กรุณาลองใหม่อีกครั้ง'
+          : 'ยังไม่สามารถเปิดไมโครโฟนได้ กรุณาตรวจสอบสิทธิ์ไมโครโฟนของ Chrome แล้วลองใหม่';
 
-      if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError') {
+      if (micState.mode === 'native') {
+        if (error?.message?.toLowerCase?.().includes('permission')) {
+          message = 'แอปยังไม่ได้รับสิทธิ์ใช้ไมโครโฟน กรุณาอนุญาตก่อนแล้วลองใหม่';
+        }
+      } else if (error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError') {
         message = 'Chrome ยังไม่ได้รับสิทธิ์ใช้ไมโครโฟน กรุณากดอนุญาตก่อน';
       } else if (error?.name === 'NotFoundError') {
         message = 'ไม่พบไมโครโฟนบนอุปกรณ์นี้';
@@ -170,6 +282,10 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
         message,
       });
       setIsListening(false);
+    } finally {
+      if (micState.mode === 'native') {
+        setIsListening(false);
+      }
     }
   };
 
@@ -232,9 +348,9 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
   }, [input, isLoading, onNotice, userData]);
 
   useEffect(() => {
-    if (initialMessage && !hasSentInitial.current) {
+    if (initialMessage && !hasSentInitialRef.current) {
       handleSend(initialMessage);
-      hasSentInitial.current = true;
+      hasSentInitialRef.current = true;
     }
   }, [handleSend, initialMessage]);
 
@@ -266,7 +382,7 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
 
       <div
         ref={scrollContainerRef}
-        className="app-scroll-region custom-scrollbar flex-1 bg-[#F6FAFD] px-4 pt-4 pb-6"
+        className="app-scroll-region custom-scrollbar flex-1 bg-[#F6FAFD] px-4 pb-6 pt-4"
       >
         {!hasUserMessages && (
           <div className="animate-fade-up mb-4 rounded-[1.75rem] border border-sky-100 bg-white px-4 py-4 shadow-sm">
@@ -301,7 +417,10 @@ export default function ChatBotPage({ onBack, userData, initialMessage, onNotice
 
         <div className="space-y-4">
           {messages.map((msg) => (
-            <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div
+              key={msg.id}
+              className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
               <div
                 className={`flex max-w-[88%] items-start gap-2.5 ${
                   msg.sender === 'user' ? 'flex-row-reverse' : 'flex-row'

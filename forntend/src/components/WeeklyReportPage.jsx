@@ -28,8 +28,8 @@ function parseThaiDate(dateStr) {
 }
 
 function getRecordDate(item) {
-  if (item?.recordedAt) {
-    const parsed = new Date(item.recordedAt);
+  if (item?.recordedAt || item?.recorded_at) {
+    const parsed = new Date(item.recordedAt || item.recorded_at);
     if (!Number.isNaN(parsed.getTime())) {
       return parsed;
     }
@@ -46,7 +46,7 @@ function getDisplayDate(item) {
 
   return recordDate.toLocaleDateString('th-TH', {
     day: '2-digit',
-    month: '2-digit',
+    month: 'short',
     year: 'numeric',
   });
 }
@@ -62,6 +62,62 @@ function getDisplayTime(item) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function getGlucoseStatus(value) {
+  if (!Number.isFinite(Number(value))) {
+    return {
+      label: 'ยังไม่มีข้อมูล',
+      className: 'bg-slate-100 text-slate-500',
+    };
+  }
+
+  const numericValue = Number(value);
+  if (numericValue < 70) {
+    return {
+      label: 'ต่ำกว่าปกติ',
+      className: 'bg-amber-100 text-amber-700',
+    };
+  }
+
+  if (numericValue <= 140) {
+    return {
+      label: 'อยู่ในเกณฑ์ดี',
+      className: 'bg-emerald-100 text-emerald-700',
+    };
+  }
+
+  if (numericValue <= 180) {
+    return {
+      label: 'ค่อนข้างสูง',
+      className: 'bg-orange-100 text-orange-700',
+    };
+  }
+
+  return {
+    label: 'สูงกว่าที่ควร',
+    className: 'bg-rose-100 text-rose-700',
+  };
+}
+
+function summarizeTrend(avgValue, highCount, totalCount) {
+  if (!totalCount) {
+    return 'ยังไม่มีข้อมูลเพียงพอสำหรับสรุปแนวโน้ม';
+  }
+
+  if (avgValue <= 140 && highCount === 0) {
+    return 'ช่วงนี้ภาพรวมค่อนข้างดี ค่าน้ำตาลส่วนใหญ่อยู่ในเกณฑ์ที่ควรติดตามต่อเนื่อง';
+  }
+
+  if (avgValue <= 140 && highCount > 0) {
+    return 'ภาพรวมยังพอใช้ได้ แต่มีบางช่วงที่ค่าน้ำตาลสูงกว่าปกติ ควรสังเกตมื้ออาหารและเวลาที่วัด';
+  }
+
+  if (avgValue <= 180) {
+    return 'ค่าน้ำตาลเฉลี่ยยังค่อนข้างสูง ควรทบทวนอาหาร การออกกำลังกาย และเวลาการบันทึก';
+  }
+
+  return 'ค่าน้ำตาลช่วงนี้สูงกว่าที่ควรค่อนข้างชัด ควรติดตามใกล้ชิดและขอคำแนะนำเพิ่มเติม';
 }
 
 export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsultAI }) {
@@ -114,22 +170,41 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
 
   const stats = useMemo(() => {
     if (!chartData.length) {
-      return { avg: 0, highCount: 0 };
+      return {
+        avg: 0,
+        highCount: 0,
+        beforeAvg: 0,
+        afterAvg: 0,
+        latestRecord: null,
+        total: 0,
+      };
     }
 
-    const sum = chartData.reduce((acc, item) => acc + item.value, 0);
-    const highCount = chartData.filter((item) => item.value > 140).length;
+    const beforeRecords = chartData.filter((item) => item.phase === 'before');
+    const afterRecords = chartData.filter((item) => item.phase === 'after');
+    const latestRecord = chartData[chartData.length - 1] || null;
+
+    const average = (records) =>
+      records.length
+        ? Math.round(records.reduce((sum, item) => sum + Number(item.value || 0), 0) / records.length)
+        : 0;
 
     return {
-      avg: Math.round(sum / chartData.length),
-      highCount,
+      avg: average(chartData),
+      highCount: chartData.filter((item) => Number(item.value) > 140).length,
+      beforeAvg: average(beforeRecords),
+      afterAvg: average(afterRecords),
+      latestRecord,
+      total: chartData.length,
     };
   }, [chartData]);
 
   const hasAnyHistory = glucoseHistory.length > 0;
+  const trendSummary = summarizeTrend(stats.avg, stats.highCount, stats.total);
+  const latestStatus = getGlucoseStatus(stats.latestRecord?.value);
 
   const handleConsultAI = () => {
-    const context = `สรุปรายงานค่าน้ำตาลเฉลี่ย ${stats.avg} mg/dL และพบค่าสูงกว่าเกณฑ์ ${stats.highCount} ครั้ง ช่วยอธิบายแนวโน้มและแนะนำวิธีดูแลตัวเองต่อเนื่องแบบเข้าใจง่ายให้หน่อยค่ะ`;
+    const context = `สรุปรายงานค่าน้ำตาลเฉลี่ย ${stats.avg} mg/dL ค่าเฉลี่ยก่อนอาหาร ${stats.beforeAvg || 0} mg/dL ค่าเฉลี่ยหลังอาหาร ${stats.afterAvg || 0} mg/dL และพบค่าสูงกว่าเกณฑ์ ${stats.highCount} ครั้ง ช่วยอธิบายแนวโน้มและแนะนำวิธีดูแลตัวเองแบบเข้าใจง่ายให้หน่อยค่ะ`;
     onConsultAI?.(context);
   };
 
@@ -156,8 +231,8 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
             <ChevronLeft size={22} className="text-slate-600" />
           </button>
           <div>
-            <h2 className="text-xl font-black tracking-tight text-slate-900">สรุปค่าน้ำตาล</h2>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">ดูแนวโน้มสุขภาพรายวัน</p>
+            <h2 className="text-xl font-black tracking-tight text-slate-900">รายงานค่าน้ำตาล</h2>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">ดูภาพรวมให้เข้าใจง่าย</p>
           </div>
         </div>
 
@@ -223,24 +298,78 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
           )}
         </div>
 
-        <div className="rounded-[2.5rem] border border-slate-100 bg-white p-7 shadow-sm">
-          <div className="mb-8 flex items-start justify-between gap-4">
-            <div>
-              <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                {customRange.start ? 'ค่าเฉลี่ยในช่วงวันที่เลือก' : `ค่าเฉลี่ยใน ${filterDays} วันล่าสุด`}
-              </p>
-              <div className="flex items-baseline gap-2">
-                <h3 className="text-5xl font-black tracking-tight text-slate-800">{stats.avg}</h3>
-                <span className="text-sm font-bold text-slate-400">mg/dL</span>
-              </div>
-            </div>
+        <section className="rounded-[2.5rem] border border-slate-100 bg-white p-6 shadow-sm">
+          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+            {customRange.start ? 'สรุปช่วงวันที่เลือก' : `สรุปใน ${filterDays} วันล่าสุด`}
+          </p>
+          <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-900">ช่วงนี้ค่าน้ำตาลเป็นอย่างไร</h3>
+          <p className="mt-3 text-sm leading-6 text-slate-600">{trendSummary}</p>
 
-            <div
-              className={`rounded-full px-4 py-1.5 text-[10px] font-black ${
-                stats.avg > 140 ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-500'
-              }`}
-            >
-              {stats.avg > 140 ? 'ต้องระวังเพิ่ม' : 'ภาพรวมดี'}
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <article className="rounded-[1.75rem] border border-slate-200/80 bg-slate-50 p-4">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">ค่าเฉลี่ยรวม</p>
+              <div className="mt-2 flex items-end gap-2">
+                <p className="text-4xl font-black tracking-tight text-slate-900">{stats.avg}</p>
+                <span className="pb-1 text-xs font-semibold text-slate-400">mg/dL</span>
+              </div>
+              <span className={`mt-3 inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${getGlucoseStatus(stats.avg).className}`}>
+                {getGlucoseStatus(stats.avg).label}
+              </span>
+            </article>
+
+            <article className="rounded-[1.75rem] border border-slate-200/80 bg-slate-50 p-4">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">ค่าสูงกว่าเกณฑ์</p>
+              <div className="mt-2 flex items-end gap-2">
+                <p className="text-4xl font-black tracking-tight text-slate-900">{stats.highCount}</p>
+                <span className="pb-1 text-xs font-semibold text-slate-400">ครั้ง</span>
+              </div>
+              <span className={`mt-3 inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${stats.highCount > 0 ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                {stats.highCount > 0 ? 'มีช่วงที่ควรระวัง' : 'ยังไม่พบค่าสูง'}
+              </span>
+            </article>
+          </div>
+        </section>
+
+        <section className="grid gap-3 sm:grid-cols-3">
+          <article className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">ก่อนอาหารเฉลี่ย</p>
+            <div className="mt-3 flex items-end gap-2">
+              <p className="text-3xl font-black tracking-tight text-slate-900">{stats.beforeAvg || '-'}</p>
+              <span className="pb-1 text-xs font-semibold text-slate-400">mg/dL</span>
+            </div>
+          </article>
+
+          <article className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">หลังอาหารเฉลี่ย</p>
+            <div className="mt-3 flex items-end gap-2">
+              <p className="text-3xl font-black tracking-tight text-slate-900">{stats.afterAvg || '-'}</p>
+              <span className="pb-1 text-xs font-semibold text-slate-400">mg/dL</span>
+            </div>
+          </article>
+
+          <article className="rounded-[2rem] border border-slate-100 bg-white p-5 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">ค่าล่าสุด</p>
+            <div className="mt-3 flex items-end gap-2">
+              <p className="text-3xl font-black tracking-tight text-slate-900">{stats.latestRecord?.value ?? '-'}</p>
+              <span className="pb-1 text-xs font-semibold text-slate-400">mg/dL</span>
+            </div>
+            <span className={`mt-3 inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${latestStatus.className}`}>
+              {latestStatus.label}
+            </span>
+            <p className="mt-2 text-xs text-slate-400">
+              {stats.latestRecord ? `${getDisplayDate(stats.latestRecord)} · ${getDisplayTime(stats.latestRecord)}` : '-'}
+            </p>
+          </article>
+        </section>
+
+        <div className="rounded-[2.5rem] border border-slate-100 bg-white p-7 shadow-sm">
+          <div className="mb-5 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">กราฟแนวโน้ม</p>
+              <h3 className="mt-1 text-xl font-black tracking-tight text-slate-900">ดูการเปลี่ยนแปลงตามเวลา</h3>
+            </div>
+            <div className="rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+              ทั้งหมด {chartData.length} รายการ
             </div>
           </div>
 
@@ -253,9 +382,7 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
               <div className="flex h-full flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-slate-100 px-5 text-center text-slate-300">
                 <Info size={32} />
                 <p className="text-xs font-bold uppercase tracking-widest">
-                  {hasAnyHistory
-                    ? 'ไม่มีข้อมูลในช่วงที่เลือก กรุณาลองเปลี่ยนช่วงเวลา'
-                    : 'ยังไม่มีข้อมูลค่าน้ำตาล เริ่มบันทึกครั้งแรกได้เลย'}
+                  {hasAnyHistory ? 'ไม่มีข้อมูลในช่วงที่เลือก กรุณาลองเปลี่ยนช่วงเวลา' : 'ยังไม่มีข้อมูลค่าน้ำตาล เริ่มบันทึกครั้งแรกได้เลย'}
                 </p>
               </div>
             )}
@@ -271,7 +398,7 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
               <div>
                 <h4 className="font-black text-slate-900">เริ่มต้นบันทึกแล้วรายงานจะชัดขึ้น</h4>
                 <p className="mt-2 text-sm leading-6 text-slate-500">
-                  เมื่อมีข้อมูลก่อนอาหารและหลังอาหาร ระบบจะสรุปแนวโน้มและช่วยให้หมอ AI ตอบได้ตรงขึ้น
+                  เมื่อมีข้อมูลก่อนอาหารและหลังอาหาร ระบบจะสรุปแนวโน้มและช่วยให้หมอ AI แนะนำได้ตรงขึ้น
                 </p>
               </div>
             </div>
@@ -285,9 +412,9 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
                 <AlertCircle size={24} />
               </div>
               <div className="space-y-3">
-                <h4 className="leading-tight font-black text-red-900">พบค่าสูงกว่าปกติ {stats.highCount} ครั้ง</h4>
+                <h4 className="leading-tight font-black text-red-900">มีช่วงที่ค่าน้ำตาลสูง {stats.highCount} ครั้ง</h4>
                 <p className="text-sm font-medium leading-relaxed text-red-700/80">
-                  ในช่วงที่เลือกมีค่าน้ำตาลเกิน 140 mg/dL หลายครั้ง ลองให้หมอ AI ช่วยสรุปและแนะนำแนวทางดูแลเพิ่มได้เลย
+                  หากต้องการคำอธิบายแบบเข้าใจง่าย ลองให้หมอ AI ช่วยสรุปแนวโน้มและแนะนำการดูแลเพิ่มได้เลย
                 </p>
                 <button
                   onClick={handleConsultAI}
@@ -304,46 +431,49 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
         <div className="space-y-4 pb-6">
           <h4 className="flex items-center gap-2 px-2 font-black text-slate-800">
             <Filter size={18} className="text-indigo-500" />
-            รายการทั้งหมด {chartData.length} รายการ
+            รายการบันทึกทั้งหมด
           </h4>
 
           <div className="grid gap-3">
-            {[...chartData].reverse().map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between rounded-3xl border border-slate-100 bg-white p-5 shadow-sm transition hover:border-indigo-100"
-              >
-                <div className="flex items-center gap-4">
-                  <div
-                    className={`rounded-2xl p-3 ${
-                      item.phase === 'before' ? 'bg-indigo-50 text-indigo-600' : 'bg-orange-50 text-orange-600'
-                    }`}
-                  >
-                    {item.phase === 'before' ? <TrendingDown size={20} /> : <TrendingUp size={20} />}
-                  </div>
-                  <div>
-                    <p className="text-lg font-black text-slate-800">
-                      {item.value} <span className="text-[10px] text-slate-400">mg/dL</span>
-                    </p>
-                    <p className="text-[10px] font-bold tracking-tight text-slate-400">
-                      {getDisplayDate(item)} · {getDisplayTime(item)}
-                    </p>
-                  </div>
-                </div>
+            {[...chartData].reverse().map((item) => {
+              const status = getGlucoseStatus(item.value);
 
+              return (
                 <div
-                  className={`rounded-full px-4 py-1.5 text-[9px] font-black uppercase ${
-                    item.value > 140
-                      ? 'bg-red-100 text-red-600'
-                      : item.phase === 'before'
-                        ? 'bg-indigo-50 text-indigo-600'
-                        : 'bg-orange-50 text-orange-600'
-                  }`}
+                  key={item.id}
+                  className="rounded-3xl border border-slate-100 bg-white p-5 shadow-sm transition hover:border-indigo-100"
                 >
-                  {item.phase === 'before' ? 'ก่อนอาหาร' : 'หลังอาหาร'}
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      <div
+                        className={`rounded-2xl p-3 ${
+                          item.phase === 'before' ? 'bg-indigo-50 text-indigo-600' : 'bg-orange-50 text-orange-600'
+                        }`}
+                      >
+                        {item.phase === 'before' ? <TrendingDown size={20} /> : <TrendingUp size={20} />}
+                      </div>
+                      <div>
+                        <p className="text-lg font-black text-slate-800">
+                          {item.value} <span className="text-[10px] text-slate-400">mg/dL</span>
+                        </p>
+                        <p className="text-xs font-semibold text-slate-500">
+                          {item.phase === 'before' ? 'ก่อนอาหาร' : 'หลังอาหาร'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <span className={`rounded-full px-3 py-1.5 text-xs font-semibold ${status.className}`}>
+                      {status.label}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between gap-3 text-xs text-slate-400">
+                    <span>{getDisplayDate(item)}</span>
+                    <span>{getDisplayTime(item)}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>

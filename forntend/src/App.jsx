@@ -1,6 +1,8 @@
-import React, { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
 import { CheckCircle2 } from 'lucide-react';
 import AppDialog from './components/AppDialog';
+import GlucoseModal from './components/GlucoseModal';
 import LoginPage from './components/LoginPage';
 import ProfileSetupPage from './components/ProfileSetupPage';
 import RegisterPage from './components/RegisterPage';
@@ -47,6 +49,22 @@ const CategoryDetailPage = lazy(() => import('./components/CategoryDetailPage'))
 const buildAppUrl = (screen) => {
   if (typeof window === 'undefined') return '/';
   return `${window.location.pathname}#/${screen || DEFAULT_SCREEN}`;
+};
+
+const getScreenBackFallback = (screen) => {
+  switch (screen) {
+    case 'register':
+      return 'login';
+    case 'profile':
+      return 'login';
+    case 'category_detail':
+    case 'chat':
+    case 'edit_profile':
+    case 'report':
+      return 'dashboard';
+    default:
+      return null;
+  }
 };
 
 function EmptyScreen({ title, message }) {
@@ -100,6 +118,109 @@ function getReminderAlertKey(reminder, date = new Date()) {
   return `${getTodayKey(date)}:${reminder.id}:${reminder.time}`;
 }
 
+function normalizeGlucoseRecord(record) {
+  if (!record || typeof record !== 'object') return record;
+  return {
+    ...record,
+    recordedAt: record.recordedAt || record.recorded_at || '',
+    reminderSlotKey: record.reminderSlotKey || record.reminder_slot_key || '',
+  };
+}
+
+function getRecordDate(record) {
+  const parsedDate = new Date(record?.recordedAt || record?.recorded_at || '');
+  return Number.isNaN(parsedDate.getTime()) ? null : parsedDate;
+}
+
+function parseReminderMinutes(timeValue) {
+  if (typeof timeValue !== 'string') return 0;
+  const [hour = '0', minute = '0'] = timeValue.split(':');
+  const parsedHour = Number.parseInt(hour, 10);
+  const parsedMinute = Number.parseInt(minute, 10);
+
+  if (Number.isNaN(parsedHour) || Number.isNaN(parsedMinute)) {
+    return 0;
+  }
+
+  return parsedHour * 60 + parsedMinute;
+}
+
+function getActiveReminderForDate(reminders, date = new Date()) {
+  const enabledReminders = [...(Array.isArray(reminders) ? reminders : [])]
+    .filter((item) => item?.isEnabled !== false && item?.time)
+    .sort((left, right) => parseReminderMinutes(left.time) - parseReminderMinutes(right.time));
+
+  if (!enabledReminders.length) return null;
+
+  const currentMinutes = date.getHours() * 60 + date.getMinutes();
+  let activeReminder = enabledReminders[0];
+
+  enabledReminders.forEach((item) => {
+    if (parseReminderMinutes(item.time) <= currentMinutes) {
+      activeReminder = item;
+    }
+  });
+
+  return activeReminder;
+}
+
+function getCurrentMealSlotGlucoseSummary(history, reminders, date = new Date()) {
+  const activeReminder = getActiveReminderForDate(reminders, date);
+  if (!activeReminder) {
+    const latestRecord = Array.isArray(history) ? history[0] || null : null;
+    return {
+      activeReminder: null,
+      slotKey: '',
+      beforeRecord: latestRecord?.phase === 'before' ? latestRecord : null,
+      afterRecord: latestRecord?.phase === 'after' ? latestRecord : null,
+      latestRecord,
+    };
+  }
+
+  const currentSlotKey = getReminderAlertKey(activeReminder, date);
+  let currentSlotRecords = (Array.isArray(history) ? history : []).filter(
+    (item) => String(item?.reminder_slot_key || item?.reminderSlotKey || '') === currentSlotKey
+  );
+
+  if (!currentSlotRecords.length) {
+    const enabledReminders = [...(Array.isArray(reminders) ? reminders : [])]
+      .filter((item) => item?.isEnabled !== false && item?.time)
+      .sort((left, right) => parseReminderMinutes(left.time) - parseReminderMinutes(right.time));
+    const activeIndex = enabledReminders.findIndex((item) => item?.id === activeReminder.id);
+    const slotStart = new Date(date);
+    const [startHour = '0', startMinute = '0'] = String(activeReminder.time || '00:00').split(':');
+    slotStart.setHours(Number.parseInt(startHour, 10), Number.parseInt(startMinute, 10), 0, 0);
+
+    const nextReminder = activeIndex >= 0 ? enabledReminders[activeIndex + 1] : null;
+    const slotEnd = new Date(slotStart);
+    if (nextReminder?.time) {
+      const [endHour = '23', endMinute = '59'] = String(nextReminder.time).split(':');
+      slotEnd.setHours(Number.parseInt(endHour, 10), Number.parseInt(endMinute, 10), 0, 0);
+    } else {
+      slotEnd.setDate(slotEnd.getDate() + 1);
+      slotEnd.setHours(0, 0, 0, 0);
+    }
+
+    currentSlotRecords = (Array.isArray(history) ? history : []).filter((item) => {
+      const recordDate = getRecordDate(item);
+      if (!recordDate) return false;
+      return recordDate >= slotStart && recordDate < slotEnd;
+    });
+  }
+
+  const beforeRecord = currentSlotRecords.find((item) => item?.phase === 'before') || null;
+  const afterRecord = currentSlotRecords.find((item) => item?.phase === 'after') || null;
+  const latestRecord = currentSlotRecords[0] || null;
+
+  return {
+    activeReminder,
+    slotKey: currentSlotKey,
+    beforeRecord,
+    afterRecord,
+    latestRecord,
+  };
+}
+
 function urlBase64ToUint8Array(base64String) {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -120,9 +241,9 @@ export default function App() {
   const [userData, setUserData] = useState(null);
   const [glucoseHistory, setGlucoseHistory] = useState([]);
   const [reminders, setReminders] = useState(() => loadMealRemindersFromStorage());
-  const [reminderSyncState, setReminderSyncState] = useState('idle');
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [initialChatMsg, setInitialChatMsg] = useState('');
+  const [isGlucoseModalOpen, setIsGlucoseModalOpen] = useState(false);
   const [showToast, setShowToast] = useState(false);
   const [reminderToast, setReminderToast] = useState(null);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
@@ -371,8 +492,6 @@ export default function App() {
     }));
 
     setReminders(nextReminders);
-    setReminderSyncState('saving');
-
     try {
       const response = await fetch(`${API_URL}/reminders`, {
         method: 'PUT',
@@ -396,16 +515,14 @@ export default function App() {
           };
         })
       );
-      setReminderSyncState('success');
     } catch (error) {
       console.error('Save reminders error:', error);
-      setReminderSyncState('error');
     } finally {
       if (reminderSyncTimerRef.current) {
         window.clearTimeout(reminderSyncTimerRef.current);
       }
       reminderSyncTimerRef.current = window.setTimeout(() => {
-        setReminderSyncState('idle');
+        reminderSyncTimerRef.current = null;
       }, 2500);
     }
   }, [userData]);
@@ -681,7 +798,12 @@ export default function App() {
 
       const data = await response.json();
       if (Array.isArray(data)) {
-        const sortedData = [...data].sort((a, b) => (b.id || 0) - (a.id || 0));
+        const normalizedData = data.map(normalizeGlucoseRecord);
+        const sortedData = [...normalizedData].sort((a, b) => {
+          const leftTime = new Date(a.recordedAt || a.recorded_at || 0).getTime();
+          const rightTime = new Date(b.recordedAt || b.recorded_at || 0).getTime();
+          return rightTime - leftTime || (b.id || 0) - (a.id || 0);
+        });
         setGlucoseHistory(sortedData);
       }
     } catch (error) {
@@ -791,6 +913,53 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [applyScreenState, updateBrowserHistory]);
 
+  useEffect(() => {
+    if (!IS_NATIVE_ANDROID) return undefined;
+
+    let listenerHandle;
+    let isCancelled = false;
+
+    const bindBackButton = async () => {
+      listenerHandle = await CapacitorApp.addListener('backButton', () => {
+        if (dialogState.isOpen) {
+          closeDialog();
+          return;
+        }
+
+        if (isGlucoseModalOpen) {
+          setIsGlucoseModalOpen(false);
+          return;
+        }
+
+        if (historyIndexRef.current > 0 && typeof window !== 'undefined') {
+          window.history.back();
+          return;
+        }
+
+        const fallbackScreen = getScreenBackFallback(currentScreen);
+        if (fallbackScreen) {
+          navigateToScreen(fallbackScreen, { replace: true });
+          return;
+        }
+
+        CapacitorApp.exitApp();
+      });
+
+      if (isCancelled && listenerHandle) {
+        await listenerHandle.remove();
+      }
+    };
+
+    bindBackButton();
+
+    return () => {
+      isCancelled = true;
+      if (listenerHandle) {
+        listenerHandle.remove();
+      }
+    };
+  }, [closeDialog, currentScreen, dialogState.isOpen, isGlucoseModalOpen, navigateToScreen]);
+
   const handleLogin = async (username, password) => {
     const validationError = validateUsername(username) || validatePassword(password);
     if (validationError) {
@@ -798,7 +967,7 @@ export default function App() {
         title: 'ข้อมูลเข้าสู่ระบบไม่ถูกต้อง',
         message: validationError,
       });
-      return;
+      return false;
     }
 
     try {
@@ -875,17 +1044,13 @@ export default function App() {
           setUserData(null);
           setGlucoseHistory([]);
           setReminders(loadMealRemindersFromStorage());
+          setIsGlucoseModalOpen(false);
           setInitialChatMsg('');
           setSelectedCategory(null);
           navigateToScreen('login', { replace: true });
         }
       },
     });
-  };
-
-  const getLatestByPhase = (phase) => {
-    const record = glucoseHistory.find((item) => item.phase === phase);
-    return record ? record.value : '-';
   };
 
   const handleSaveGlucose = async (value, phase) => {
@@ -901,20 +1066,15 @@ export default function App() {
     }
 
     const now = new Date();
+    const activeReminder = getActiveReminderForDate(reminders, now);
     const newData = {
-      id: Date.now(),
-      value: parseInt(value, 10),
+      value: Number.parseInt(value, 10),
       phase,
       date: now.toLocaleDateString('th-TH'),
       time: now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' }),
+      recordedAt: now.toISOString(),
+      reminderSlotKey: activeReminder ? getReminderAlertKey(activeReminder, now) : '',
     };
-
-    setGlucoseHistory((prev) => [newData, ...prev]);
-    setShowToast(true);
-    if (toastTimerRef.current) {
-      window.clearTimeout(toastTimerRef.current);
-    }
-    toastTimerRef.current = window.setTimeout(() => setShowToast(false), 2800);
 
     try {
       const response = await fetch(`${API_URL}/glucose`, {
@@ -923,12 +1083,30 @@ export default function App() {
         credentials: 'include',
         body: JSON.stringify(newData),
       });
+      const responseData = await response.json().catch(() => ({}));
 
-      if (response.ok) {
-        await fetchGlucoseHistory();
+      if (!response.ok) {
+        showAlert({
+          title: 'บันทึกค่าน้ำตาลไม่สำเร็จ',
+          message: responseData.error || 'ยังไม่สามารถบันทึกค่าน้ำตาลได้ในขณะนี้',
+        });
+        return false;
       }
+
+      await fetchGlucoseHistory();
+      setShowToast(true);
+      if (toastTimerRef.current) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+      toastTimerRef.current = window.setTimeout(() => setShowToast(false), 2800);
+      return true;
     } catch (error) {
       console.error('Save glucose error:', error);
+      showAlert({
+        title: 'เชื่อมต่อไม่สำเร็จ',
+        message: 'ยังไม่สามารถบันทึกค่าน้ำตาลได้ กรุณาลองใหม่อีกครั้ง',
+      });
+      return false;
     }
   };
 
@@ -1012,6 +1190,10 @@ export default function App() {
   };
 
   const isAppReady = !isCheckingSession;
+  const dashboardGlucoseSummary = useMemo(
+    () => getCurrentMealSlotGlucoseSummary(glucoseHistory, reminders, new Date()),
+    [glucoseHistory, reminders]
+  );
 
   return (
     <div className="app-shell flex items-start justify-center overflow-x-hidden font-sans sm:items-center">
@@ -1083,27 +1265,18 @@ export default function App() {
             {isAppReady && currentScreen === 'dashboard' && (
               <Suspense fallback={<ScreenLoader label="กำลังเปิดหน้าหลัก..." />}>
                 <DashboardPage
-                  userName={userData?.name}
-                  bmi={userData?.bmi}
-                  stage={userData?.stage}
-                  allergy={userData?.allergy}
-                  treatment={userData?.treatment}
-                  beforeGlucose={getLatestByPhase('before')}
-                  afterGlucose={getLatestByPhase('after')}
-                  lastGlucose={glucoseHistory[0]}
-                  onSaveGlucose={handleSaveGlucose}
-                  onSelectReport={() => navigateToScreen('report')}
+                  userData={userData}
+                  glucoseSummary={dashboardGlucoseSummary}
                   onEditProfile={() => navigateToScreen('edit_profile')}
+                  onOpenGlucoseModal={() => setIsGlucoseModalOpen(true)}
                   onLogout={handleLogout}
-                  onNotice={showAlert}
+                  onOpenCategory={(category) => navigateToScreen('category_detail', { category })}
+                  onOpenChat={() => navigateToChat('')}
+                  onOpenReport={() => navigateToScreen('report')}
                   notificationPermission={notificationPermission}
                   onEnableNotifications={requestNotificationPermission}
-                  initialReminders={reminders}
-                  onRemindersChange={syncRemindersToBackend}
-                  reminderSyncState={reminderSyncState}
-                  onSelectChat={(category) =>
-                    category ? navigateToScreen('category_detail', { category }) : navigateToChat('')
-                  }
+                  mealReminders={reminders}
+                  onMealRemindersChange={syncRemindersToBackend}
                 />
               </Suspense>
             )}
@@ -1170,6 +1343,13 @@ export default function App() {
         cancelText={dialogState.cancelText}
         onConfirm={handleDialogConfirm}
         onCancel={closeDialog}
+      />
+
+      <GlucoseModal
+        isOpen={isGlucoseModalOpen}
+        onClose={() => setIsGlucoseModalOpen(false)}
+        onSave={handleSaveGlucose}
+        onNotice={showAlert}
       />
     </div>
   );

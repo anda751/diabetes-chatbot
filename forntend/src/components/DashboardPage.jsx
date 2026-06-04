@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   Apple,
   Bell,
   BookOpen,
@@ -32,21 +31,21 @@ const categoryCards = [
   {
     key: 'exercise',
     title: 'ออกกำลังกาย',
-    description: 'เลือกกิจกรรมที่ปลอดภัยและเหมาะกับร่างกาย',
+    description: 'เลือกกิจกรรมที่ปลอดภัยและเหมาะกับร่างกายในแต่ละวัน',
     icon: Dumbbell,
     iconClassName: 'bg-emerald-500 text-white',
   },
   {
     key: 'glucose',
     title: 'คุมน้ำตาล',
-    description: 'ติดตามค่าน้ำตาลและเข้าใจค่าที่วัดได้ง่ายขึ้น',
+    description: 'เข้าใจค่าที่วัดได้ และดูแนวทางดูแลตัวเองให้ต่อเนื่อง',
     icon: Waves,
     iconClassName: 'bg-blue-500 text-white',
   },
   {
     key: 'knowledge',
     title: 'ความรู้เรื่องโรค',
-    description: 'เรียนรู้การดูแลตัวเองและสัญญาณที่ควรระวัง',
+    description: 'เรียนรู้การสังเกตอาการและดูแลตัวเองอย่างเหมาะสม',
     icon: BookOpen,
     iconClassName: 'bg-rose-500 text-white',
   },
@@ -73,18 +72,12 @@ const parseReminderMinutes = (timeValue) => {
 const buildReminderSlotKey = (reminder, date = new Date()) =>
   `${getDayKey(date)}:${reminder.id}:${reminder.time}`;
 
-const createReminderId = (label, index) =>
-  `reminder-${index}-${String(label || 'meal')
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9ก-๙]+/g, '-')}`;
-
 const normalizeReminder = (reminder, index) => {
   const fallback = DEFAULT_MEAL_REMINDERS[index] || DEFAULT_MEAL_REMINDERS[0];
   return {
-    id: reminder?.id || fallback.id || createReminderId(reminder?.label, index),
-    label: reminder?.label || fallback.label || `มื้อที่ ${index + 1}`,
-    time: reminder?.time || fallback.time || '08:00',
+    id: reminder?.id || fallback.id,
+    label: reminder?.label || fallback.label,
+    time: reminder?.time || fallback.time,
     isEnabled: reminder?.isEnabled !== false,
     completedSlotKey: typeof reminder?.completedSlotKey === 'string' ? reminder.completedSlotKey : '',
   };
@@ -154,8 +147,27 @@ const statusToneByValue = (value) => {
   };
 };
 
-function DashboardPage({
+const buildCurrentMealSummary = (sortedReminders, now) => {
+  const enabledReminders = sortedReminders.filter((item) => item.isEnabled !== false);
+  if (!enabledReminders.length) {
+    return 'ยังไม่ได้ตั้งเวลาแจ้งเตือนมื้ออาหาร';
+  }
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  let activeReminder = enabledReminders[0];
+
+  enabledReminders.forEach((item) => {
+    if (parseReminderMinutes(item.time) <= currentMinutes) {
+      activeReminder = item;
+    }
+  });
+
+  return `รอบปัจจุบัน: ${activeReminder.label} เวลา ${activeReminder.time} น.`;
+};
+
+export default function DashboardPage({
   userData,
+  glucoseSummary,
   onEditProfile,
   onOpenGlucoseModal,
   onLogout,
@@ -175,19 +187,14 @@ function DashboardPage({
       setTimeMarker(Date.now());
     }, 30000);
 
-    return () => {
-      window.clearInterval(intervalId);
-    };
+    return () => window.clearInterval(intervalId);
   }, []);
 
   const now = useMemo(() => new Date(timeMarker), [timeMarker]);
-
   const reminders = useMemo(() => loadMealReminders(mealReminders), [mealReminders]);
-
   const sortedReminders = useMemo(
-    () =>
-      [...reminders].sort((left, right) => parseReminderMinutes(left.time) - parseReminderMinutes(right.time)),
-    [reminders],
+    () => [...reminders].sort((left, right) => parseReminderMinutes(left.time) - parseReminderMinutes(right.time)),
+    [reminders]
   );
 
   const visibleReminders = useMemo(() => {
@@ -202,16 +209,24 @@ function DashboardPage({
     });
   }, [isSettingReminders, now, sortedReminders]);
 
-  const reminderSyncLabel = useMemo(() => {
+  const reminderSummaryText = useMemo(() => {
     if (visibleReminders.length === 0) {
-      return 'ครบทุกมื้อของวันนี้แล้ว ระบบจะเริ่มใหม่ตามเวลาที่ตั้งไว้';
+      return 'วันนี้ทำครบทุกมื้อที่ตั้งไว้แล้ว ระบบจะเริ่มรอบใหม่ให้อัตโนมัติเมื่อถึงเวลามื้อถัดไปหรือวันใหม่';
     }
 
-    return 'สถานะมื้ออาหารจะอิงตามเวลาที่ตั้งไว้ และรีเซ็ตใหม่อัตโนมัติทุกวัน';
+    return 'ระบบจะรีเซ็ตสถานะมื้ออาหารตามเวลาที่ตั้งไว้ และเริ่มใหม่ให้อัตโนมัติทุกวัน';
   }, [visibleReminders.length]);
 
-  const latestGlucose = userData?.lastGlucose || null;
-  const glucoseTone = statusToneByValue(latestGlucose?.value);
+  const currentMealSummary = useMemo(
+    () => buildCurrentMealSummary(sortedReminders, now),
+    [now, sortedReminders]
+  );
+
+  const beforeGlucose = glucoseSummary?.beforeRecord || null;
+  const afterGlucose = glucoseSummary?.afterRecord || null;
+  const latestGlucose = glucoseSummary?.latestRecord || null;
+  const beforeTone = statusToneByValue(beforeGlucose?.value);
+  const afterTone = statusToneByValue(afterGlucose?.value);
 
   const updateReminders = (updater) => {
     const nextValue = typeof updater === 'function' ? updater(reminders) : updater;
@@ -230,7 +245,7 @@ function DashboardPage({
           nextReminder.completedSlotKey = '';
         }
         return nextReminder;
-      }),
+      })
     );
   };
 
@@ -243,27 +258,19 @@ function DashboardPage({
           ...item,
           completedSlotKey: buildReminderSlotKey(item, timestamp),
         };
-      }),
+      })
     );
   };
 
   return (
-    <div className="app-page dashboard-page">
-      <div className="app-scroll-region px-4 pb-28 pt-5 sm:px-5">
+    <div className="app-page dashboard-page flex min-h-0 flex-col">
+      <div className="app-scroll-region flex-1 px-4 pb-24 pt-4 sm:px-5">
         <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
-          <section className="rounded-[32px] border border-slate-200/80 bg-white/95 p-5 shadow-[0_18px_40px_rgba(15,23,42,0.08)]">
+          <section className="rounded-[28px] border border-slate-200/80 bg-white/95 p-5 shadow-[0_16px_36px_rgba(15,23,42,0.08)]">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-slate-400">Today Care</p>
-                <h1 className="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">
-                  สวัสดีคุณ {userData?.name || userData?.username || 'ผู้ใช้งาน'}
-                </h1>
-                <p className="mt-2 text-sm leading-6 text-emerald-700">
-                  วันนี้มาดูแลสุขภาพกันแบบสบาย ๆ ทีละขั้นนะคะ
-                </p>
-              </div>
+              <p className="pt-1 text-[0.72rem] font-semibold uppercase tracking-[0.28em] text-slate-400">Today Care</p>
 
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
                   onClick={onEditProfile}
@@ -283,80 +290,117 @@ function DashboardPage({
               </div>
             </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <article className="rounded-[28px] border border-blue-100 bg-blue-50/80 p-4 shadow-sm">
-                <p className="text-sm font-bold uppercase tracking-[0.18em] text-blue-600">BMI</p>
-                <p className="mt-3 text-5xl font-black tracking-tight text-blue-700">
-                  {userData?.bmi ? Number(userData.bmi).toFixed(1) : '-'}
-                </p>
-                <button
-                  type="button"
-                  onClick={onEditProfile}
-                  className="mt-4 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-700 transition hover:border-blue-300"
-                >
-                  <Edit3 size={15} />
-                  แก้ไขข้อมูล
-                </button>
-              </article>
+            <div className="mt-4">
+              <h1 className="max-w-[12rem] text-[1.85rem] font-black leading-[1.15] tracking-tight text-slate-900 sm:max-w-none sm:text-[2.05rem]">
+                สวัสดีคุณ {userData?.name || userData?.username || 'ผู้ใช้งาน'}
+              </h1>
+              <p className="mt-3 max-w-[18rem] text-sm leading-6 text-slate-600">
+                วันนี้มาดูข้อมูลสำคัญและดูแลตัวเองทีละขั้นแบบสบาย ๆ กันนะคะ
+              </p>
+            </div>
 
-              <article className="rounded-[28px] border border-emerald-100 bg-emerald-50/90 p-4 shadow-sm">
-                <p className="text-sm font-bold uppercase tracking-[0.18em] text-emerald-600">Diabetes Stage</p>
-                <p className="mt-3 text-4xl font-black tracking-tight text-emerald-800">
-                  {userData?.stage ? `ระยะ ${userData.stage}` : 'ยังไม่ได้ระบุ'}
-                </p>
-                <p className="mt-4 inline-flex items-center rounded-full border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-700">
-                  วางแผนการดูแลให้เหมาะกับคุณ
-                </p>
-              </article>
+            <div className="mt-5 flex flex-wrap items-center gap-2">
+              <span className="inline-flex rounded-full bg-slate-100 px-3 py-2 text-sm font-semibold text-slate-600">
+                BMI {userData?.bmi ? Number(userData.bmi).toFixed(1) : '-'}
+              </span>
+              <span className="inline-flex rounded-full bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700">
+                {userData?.stage ? `เบาหวานระยะ ${userData.stage}` : 'ยังไม่ได้ระบุระยะ'}
+              </span>
             </div>
           </section>
 
-          <section className="rounded-[30px] border border-slate-200/80 bg-white/95 p-5 shadow-[0_16px_34px_rgba(15,23,42,0.07)]">
+          <section className="rounded-[30px] border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-5 shadow-[0_18px_38px_rgba(15,23,42,0.08)]">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-500">
+              <div className="min-w-0">
+                <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
                   <Waves size={24} />
                 </div>
-                <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-900">น้ำตาลล่าสุด</h2>
-                <p className="mt-1 text-sm text-slate-500">บันทึกไว้เพื่อติดตามแนวโน้มในแต่ละวัน</p>
+                <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-900">น้ำตาลรอบมื้อนี้</h2>
+                <p className="mt-1 text-sm text-slate-500">แสดงทั้งค่าก่อนอาหารและหลังอาหารของรอบเวลาปัจจุบัน</p>
               </div>
 
               <button
                 type="button"
                 onClick={onOpenGlucoseModal}
-                className="inline-flex items-center gap-2 rounded-2xl bg-rose-500 px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(244,63,94,0.28)] transition hover:bg-rose-600"
+                className="inline-flex shrink-0 items-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_24px_rgba(37,99,235,0.22)] transition hover:bg-blue-700"
               >
                 <Plus size={16} />
                 บันทึก
               </button>
             </div>
 
-            <div className="mt-5 flex items-end justify-between gap-4">
-              <div className="min-w-0">
-                <div className="flex items-end gap-3">
-                  <p className="text-6xl font-black tracking-tight text-slate-900">
-                    {latestGlucose?.value ?? '-'}
+            <div className="mt-5 rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-500">{currentMealSummary}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    อัปเดตล่าสุด {formatThaiDateTime(latestGlucose?.recordedAt)}
                   </p>
-                  <span className="pb-2 text-sm font-semibold text-slate-400">mg/dL</span>
                 </div>
-                <p className="mt-2 text-sm text-slate-500">
-                  {latestGlucose?.timeLabel || 'ยังไม่มีการบันทึกในรอบนี้'}
-                </p>
+                <span className="rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
+                  {latestGlucose ? 'บันทึกรอบนี้แล้ว' : 'ยังไม่บันทึกรอบนี้'}
+                </span>
               </div>
 
-              <div className="shrink-0 text-right">
-                <span className={`inline-flex rounded-full px-3 py-2 text-sm font-semibold ${glucoseTone.className}`}>
-                  {glucoseTone.label}
-                </span>
-                <p className="mt-3 text-xs text-slate-400">{formatThaiDateTime(latestGlucose?.recordedAt)}</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <article className="rounded-[22px] border border-slate-200/80 bg-slate-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">Before Meal</p>
+                  <div className="mt-2 flex items-end gap-2">
+                    <p className="text-4xl font-black tracking-tight text-slate-900">{beforeGlucose?.value ?? '-'}</p>
+                    <span className="pb-1 text-xs font-semibold text-slate-400">mg/dL</span>
+                  </div>
+                  <span className={`mt-3 inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${beforeTone.className}`}>
+                    {beforeTone.label}
+                  </span>
+                  <p className="mt-2 text-xs text-slate-400">{formatThaiDateTime(beforeGlucose?.recordedAt)}</p>
+                </article>
+
+                <article className="rounded-[22px] border border-slate-200/80 bg-slate-50 p-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">After Meal</p>
+                  <div className="mt-2 flex items-end gap-2">
+                    <p className="text-4xl font-black tracking-tight text-slate-900">{afterGlucose?.value ?? '-'}</p>
+                    <span className="pb-1 text-xs font-semibold text-slate-400">mg/dL</span>
+                  </div>
+                  <span className={`mt-3 inline-flex rounded-full px-3 py-1.5 text-xs font-semibold ${afterTone.className}`}>
+                    {afterTone.label}
+                  </span>
+                  <p className="mt-2 text-xs text-slate-400">{formatThaiDateTime(afterGlucose?.recordedAt)}</p>
+                </article>
               </div>
             </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <article className="rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">BMI</p>
+                <p className="mt-2 text-3xl font-black tracking-tight text-slate-900">
+                  {userData?.bmi ? Number(userData.bmi).toFixed(1) : '-'}
+                </p>
+                <p className="mt-1 text-sm text-slate-500">ใช้ดูสมดุลของน้ำหนักและส่วนสูง</p>
+              </article>
+
+              <article className="rounded-[24px] border border-slate-200/80 bg-white p-4 shadow-sm">
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Diabetes Stage</p>
+                <p className="mt-2 text-3xl font-black tracking-tight text-slate-900">
+                  {userData?.stage ? `ระยะ ${userData.stage}` : '-'}
+                </p>
+                <p className="mt-1 text-sm text-slate-500">ช่วยให้คำแนะนำเหมาะกับช่วงการดูแล</p>
+              </article>
+            </div>
+
+            <button
+              type="button"
+              onClick={onEditProfile}
+              className="mt-4 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:text-slate-900"
+            >
+              <Edit3 size={15} />
+              แก้ไขข้อมูลสุขภาพ
+            </button>
           </section>
 
           <button
             type="button"
             onClick={onOpenReport}
-            className="flex w-full items-center justify-between rounded-[30px] border border-slate-200/80 bg-white/95 px-5 py-5 text-left shadow-[0_16px_34px_rgba(15,23,42,0.07)] transition hover:border-slate-300 hover:shadow-[0_18px_36px_rgba(15,23,42,0.1)]"
+            className="flex w-full items-center justify-between rounded-[28px] border border-slate-200/80 bg-white/95 px-5 py-5 text-left shadow-[0_14px_32px_rgba(15,23,42,0.07)] transition hover:border-slate-300 hover:shadow-[0_18px_36px_rgba(15,23,42,0.1)]"
           >
             <div className="flex items-center gap-4">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-500">
@@ -364,7 +408,7 @@ function DashboardPage({
               </div>
               <div>
                 <h2 className="text-xl font-bold tracking-tight text-slate-900">สรุปสุขภาพประจำสัปดาห์</h2>
-                <p className="mt-1 text-sm text-slate-500">ดูแนวโน้มน้ำตาลและคำแนะนำจาก AI</p>
+                <p className="mt-1 text-sm text-slate-500">ดูแนวโน้มค่าน้ำตาลและคำแนะนำจาก AI</p>
               </div>
             </div>
             <ChevronRight className="text-slate-300" />
@@ -378,27 +422,27 @@ function DashboardPage({
                   key={item.key}
                   type="button"
                   onClick={() => onOpenCategory(item.key)}
-                  className="group rounded-[30px] border border-slate-200/80 bg-white/95 p-5 text-left shadow-[0_14px_30px_rgba(15,23,42,0.07)] transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_18px_34px_rgba(15,23,42,0.11)]"
+                  className="rounded-[28px] border border-slate-200/80 bg-white/95 p-5 text-left shadow-[0_12px_28px_rgba(15,23,42,0.07)] transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_16px_32px_rgba(15,23,42,0.1)]"
                 >
                   <div className={`flex h-16 w-16 items-center justify-center rounded-2xl shadow-sm ${item.iconClassName}`}>
                     <Icon size={28} />
                   </div>
-                  <h3 className="mt-5 text-2xl font-extrabold tracking-tight text-slate-900">{item.title}</h3>
+                  <h3 className="mt-4 text-[1.7rem] font-black tracking-tight text-slate-900">{item.title}</h3>
                   <p className="mt-2 text-sm leading-6 text-slate-500">{item.description}</p>
                 </button>
               );
             })}
           </section>
 
-          <section className="rounded-[30px] border border-slate-200/80 bg-white/95 p-5 shadow-[0_16px_34px_rgba(15,23,42,0.07)]">
+          <section className="rounded-[28px] border border-slate-200/80 bg-white/95 p-5 shadow-[0_14px_32px_rgba(15,23,42,0.07)]">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-500">
                   <Bell size={22} />
                 </div>
-                <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-900">แจ้งเตือนมื้ออาหาร</h2>
+                <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-900">แจ้งเตือนมื้ออาหาร</h2>
                 <p className="mt-1 text-sm leading-6 text-slate-500">
-                  ทำเครื่องหมายมื้อที่รับประทานแล้วได้เลย ระบบจะรีเซ็ตใหม่ตามเวลาที่ตั้งไว้
+                  ทำเครื่องหมายมื้อที่รับประทานแล้ว ระบบจะรีเซ็ตตามเวลาที่ตั้งไว้โดยอัตโนมัติ
                 </p>
               </div>
 
@@ -423,7 +467,7 @@ function DashboardPage({
               </button>
             ) : null}
 
-            <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">{reminderSyncLabel}</p>
+            <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">{reminderSummaryText}</p>
 
             <div className="mt-4 space-y-3">
               {(isSettingReminders ? sortedReminders : visibleReminders).map((reminder) => {
@@ -431,10 +475,7 @@ function DashboardPage({
                 const isCompleted = reminder.completedSlotKey === currentSlotKey;
 
                 return (
-                  <div
-                    key={reminder.id}
-                    className="rounded-[24px] border border-slate-200/80 bg-white px-4 py-4 shadow-sm"
-                  >
+                  <div key={reminder.id} className="rounded-[22px] border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-lg font-bold tracking-tight text-slate-900">{reminder.label}</p>
@@ -447,9 +488,7 @@ function DashboardPage({
                           <input
                             type="checkbox"
                             checked={reminder.isEnabled}
-                            onChange={(event) =>
-                              handleReminderChange(reminder.id, 'isEnabled', event.target.checked)
-                            }
+                            onChange={(event) => handleReminderChange(reminder.id, 'isEnabled', event.target.checked)}
                             className="h-4 w-4 accent-emerald-500"
                           />
                         </label>
@@ -492,47 +531,23 @@ function DashboardPage({
                   </div>
                 );
               })}
-
-              {!isSettingReminders && visibleReminders.length === 0 ? (
-                <div className="rounded-[24px] border border-emerald-100 bg-emerald-50 px-4 py-4 text-sm leading-6 text-emerald-700">
-                  วันนี้ครบทุกมื้อที่ตั้งไว้แล้ว เดี๋ยวระบบจะเริ่มใหม่ให้อัตโนมัติในวันถัดไป
-                </div>
-              ) : null}
             </div>
           </section>
 
           <button
             type="button"
             onClick={onOpenChat}
-            className="flex w-full items-center justify-between rounded-[30px] border border-slate-200/80 bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_100%)] px-5 py-5 text-left text-white shadow-[0_18px_36px_rgba(29,78,216,0.28)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_40px_rgba(29,78,216,0.32)]"
+            className="flex w-full items-center justify-between rounded-[28px] border border-slate-200/80 bg-[linear-gradient(135deg,#0f172a_0%,#1d4ed8_100%)] px-5 py-5 text-left text-white shadow-[0_18px_36px_rgba(29,78,216,0.28)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_40px_rgba(29,78,216,0.32)]"
           >
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-blue-100">AI Care</p>
               <h2 className="mt-2 text-2xl font-black tracking-tight">คุยกับหมอ AI</h2>
-              <p className="mt-2 text-sm leading-6 text-blue-100/90">
-                ถามเรื่องอาหาร อาการ ค่าน้ำตาล หรือการดูแลตัวเองได้ทุกวัน
-              </p>
+              <p className="mt-2 text-sm leading-6 text-blue-100/90">ถามเรื่องอาหาร อาการ ค่าน้ำตาล หรือการดูแลตัวเองได้ทันที</p>
             </div>
             <ChevronRight className="text-blue-100" />
           </button>
-
-          <section className="rounded-[28px] border border-rose-100 bg-rose-50/90 px-4 py-4">
-            <div className="flex items-start gap-3">
-              <div className="mt-0.5 text-rose-500">
-                <AlertTriangle size={20} />
-              </div>
-              <div>
-                <p className="text-sm font-bold text-rose-700">ข้อมูลเฉพาะตัว</p>
-                <p className="mt-1 text-sm leading-6 text-rose-700/85">
-                  คำแนะนำในแอปนี้ใช้เพื่อช่วยดูแลตัวเองเบื้องต้น หากมีอาการผิดปกติรุนแรงควรพบแพทย์ทันที
-                </p>
-              </div>
-            </div>
-          </section>
         </div>
       </div>
     </div>
   );
 }
-
-export default DashboardPage;

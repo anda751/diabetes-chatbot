@@ -17,14 +17,51 @@ const WeeklyReportChart = lazy(() => import('./WeeklyReportChart'));
 function parseThaiDate(dateStr) {
   try {
     const parts = String(dateStr).split('/');
-    const day = parseInt(parts[0], 10);
-    const month = parseInt(parts[1], 10) - 1;
-    let year = parseInt(parts[2], 10);
+    const day = Number.parseInt(parts[0], 10);
+    const month = Number.parseInt(parts[1], 10) - 1;
+    let year = Number.parseInt(parts[2], 10);
     if (year > 2500) year -= 543;
     return new Date(year, month, day);
   } catch {
     return null;
   }
+}
+
+function getRecordDate(item) {
+  if (item?.recordedAt) {
+    const parsed = new Date(item.recordedAt);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed;
+    }
+  }
+
+  return parseThaiDate(item?.date);
+}
+
+function getDisplayDate(item) {
+  const recordDate = getRecordDate(item);
+  if (!recordDate || Number.isNaN(recordDate.getTime())) {
+    return String(item?.date || '-');
+  }
+
+  return recordDate.toLocaleDateString('th-TH', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+}
+
+function getDisplayTime(item) {
+  if (item?.time) return item.time;
+  const recordDate = getRecordDate(item);
+  if (!recordDate || Number.isNaN(recordDate.getTime())) {
+    return '-';
+  }
+
+  return recordDate.toLocaleTimeString('th-TH', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsultAI }) {
@@ -39,8 +76,8 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
     now.setHours(23, 59, 59, 999);
 
     const filtered = glucoseHistory.filter((item) => {
-      const itemDate = parseThaiDate(item.date);
-      if (!itemDate) return false;
+      const itemDate = getRecordDate(item);
+      if (!itemDate || Number.isNaN(itemDate.getTime())) return false;
 
       if (customRange.start && customRange.end) {
         const start = new Date(customRange.start);
@@ -55,13 +92,24 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
     });
 
     return [...filtered]
-      .sort((a, b) => a.id - b.id)
-      .map((item) => ({
-        ...item,
-        beforeValue: item.phase === 'before' ? item.value : null,
-        afterValue: item.phase === 'after' ? item.value : null,
-        displayDate: `${String(item.date).split('/')[0]}/${String(item.date).split('/')[1]}`,
-      }));
+      .sort((a, b) => getRecordDate(a)?.getTime() - getRecordDate(b)?.getTime())
+      .map((item) => {
+        const itemDate = getRecordDate(item);
+        const displayDate =
+          itemDate && !Number.isNaN(itemDate.getTime())
+            ? itemDate.toLocaleDateString('th-TH', {
+                day: '2-digit',
+                month: '2-digit',
+              })
+            : '-';
+
+        return {
+          ...item,
+          beforeValue: item.phase === 'before' ? item.value : null,
+          afterValue: item.phase === 'after' ? item.value : null,
+          displayDate,
+        };
+      });
   }, [customRange, filterDays, glucoseHistory]);
 
   const stats = useMemo(() => {
@@ -109,9 +157,7 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
           </button>
           <div>
             <h2 className="text-xl font-black tracking-tight text-slate-900">สรุปค่าน้ำตาล</h2>
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">
-              ดูแนวโน้มสุขภาพรายวัน
-            </p>
+            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">ดูแนวโน้มสุขภาพรายวัน</p>
           </div>
         </div>
 
@@ -151,10 +197,7 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
               <div className="mb-4 flex items-center justify-between">
                 <p className="text-xs font-black uppercase text-slate-800">เลือกช่วงวันที่เอง</p>
                 {(customRange.start || customRange.end) && (
-                  <button
-                    onClick={clearCustomRange}
-                    className="flex items-center gap-1 text-[10px] font-black text-red-500"
-                  >
+                  <button onClick={clearCustomRange} className="flex items-center gap-1 text-[10px] font-black text-red-500">
                     <X size={12} />
                     ล้างค่า
                   </button>
@@ -166,18 +209,14 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
                   type="date"
                   className="touch-target flex-1 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs font-bold outline-none focus:border-indigo-300"
                   value={customRange.start}
-                  onChange={(event) =>
-                    setCustomRange((prev) => ({ ...prev, start: event.target.value }))
-                  }
+                  onChange={(event) => setCustomRange((prev) => ({ ...prev, start: event.target.value }))}
                 />
                 <ChevronRight size={16} className="text-slate-300" />
                 <input
                   type="date"
                   className="touch-target flex-1 rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs font-bold outline-none focus:border-indigo-300"
                   value={customRange.end}
-                  onChange={(event) =>
-                    setCustomRange((prev) => ({ ...prev, end: event.target.value }))
-                  }
+                  onChange={(event) => setCustomRange((prev) => ({ ...prev, end: event.target.value }))}
                 />
               </div>
             </div>
@@ -188,9 +227,7 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
           <div className="mb-8 flex items-start justify-between gap-4">
             <div>
               <p className="mb-1 text-[10px] font-black uppercase tracking-widest text-slate-400">
-                {customRange.start
-                  ? 'ค่าเฉลี่ยในช่วงวันที่เลือก'
-                  : `ค่าเฉลี่ยใน ${filterDays} วันล่าสุด`}
+                {customRange.start ? 'ค่าเฉลี่ยในช่วงวันที่เลือก' : `ค่าเฉลี่ยใน ${filterDays} วันล่าสุด`}
               </p>
               <div className="flex items-baseline gap-2">
                 <h3 className="text-5xl font-black tracking-tight text-slate-800">{stats.avg}</h3>
@@ -248,11 +285,9 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
                 <AlertCircle size={24} />
               </div>
               <div className="space-y-3">
-                <h4 className="leading-tight font-black text-red-900">
-                  พบค่าสูงกว่าปกติ {stats.highCount} ครั้ง
-                </h4>
+                <h4 className="leading-tight font-black text-red-900">พบค่าสูงกว่าปกติ {stats.highCount} ครั้ง</h4>
                 <p className="text-sm font-medium leading-relaxed text-red-700/80">
-                  ในช่วงที่เลือกมีค่าน้ำตาลเกิน 140 mg/dL หลายครั้ง ลองให้หมอ AI ช่วยสรุปและแนะนำแนวทางดูแลเพิ่มเติมได้เลย
+                  ในช่วงที่เลือกมีค่าน้ำตาลเกิน 140 mg/dL หลายครั้ง ลองให้หมอ AI ช่วยสรุปและแนะนำแนวทางดูแลเพิ่มได้เลย
                 </p>
                 <button
                   onClick={handleConsultAI}
@@ -281,9 +316,7 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
                 <div className="flex items-center gap-4">
                   <div
                     className={`rounded-2xl p-3 ${
-                      item.phase === 'before'
-                        ? 'bg-indigo-50 text-indigo-600'
-                        : 'bg-orange-50 text-orange-600'
+                      item.phase === 'before' ? 'bg-indigo-50 text-indigo-600' : 'bg-orange-50 text-orange-600'
                     }`}
                   >
                     {item.phase === 'before' ? <TrendingDown size={20} /> : <TrendingUp size={20} />}
@@ -293,7 +326,7 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
                       {item.value} <span className="text-[10px] text-slate-400">mg/dL</span>
                     </p>
                     <p className="text-[10px] font-bold tracking-tight text-slate-400">
-                      {item.date} · {item.time}
+                      {getDisplayDate(item)} · {getDisplayTime(item)}
                     </p>
                   </div>
                 </div>

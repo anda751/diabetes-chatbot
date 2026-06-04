@@ -91,8 +91,20 @@ export async function initDB() {
       value INTEGER,
       phase TEXT,
       date TEXT,
-      time TEXT
+      time TEXT,
+      recorded_at TIMESTAMPTZ DEFAULT NOW(),
+      reminder_slot_key TEXT DEFAULT ''
     )
+  `);
+
+  await db.exec(`
+    ALTER TABLE glucose_history
+    ADD COLUMN IF NOT EXISTS recorded_at TIMESTAMPTZ DEFAULT NOW()
+  `);
+
+  await db.exec(`
+    ALTER TABLE glucose_history
+    ADD COLUMN IF NOT EXISTS reminder_slot_key TEXT DEFAULT ''
   `);
 
   await db.exec(`

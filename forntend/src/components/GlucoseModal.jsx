@@ -5,20 +5,23 @@ import { validateGlucoseValue } from '../utils/validation';
 export default function GlucoseModal({ isOpen, onClose, onSave, onNotice }) {
   const [value, setValue] = useState('');
   const [mealPhase, setMealPhase] = useState('before');
+  const [isSaving, setIsSaving] = useState(false);
 
   if (!isOpen) return null;
 
   const resetForm = () => {
     setValue('');
     setMealPhase('before');
+    setIsSaving(false);
   };
 
   const handleClose = () => {
+    if (isSaving) return;
     resetForm();
     onClose();
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const validationError = validateGlucoseValue(value);
 
     if (validationError) {
@@ -29,21 +32,27 @@ export default function GlucoseModal({ isOpen, onClose, onSave, onNotice }) {
       return;
     }
 
-    onSave(parseInt(value, 10), mealPhase);
-    handleClose();
+    setIsSaving(true);
+    const isSaved = await onSave(Number.parseInt(value, 10), mealPhase);
+
+    if (isSaved) {
+      resetForm();
+      onClose();
+      return;
+    }
+
+    setIsSaving(false);
   };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end justify-center p-4 sm:items-center">
-      <div
-        className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"
-        onClick={handleClose}
-      />
+      <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onClick={handleClose} />
 
       <div className="animate-slide-up relative z-10 w-full max-w-[380px] rounded-[2.25rem] bg-white p-6 shadow-[0_20px_50px_rgba(0,0,0,0.3)]">
         <button
           onClick={handleClose}
-          className="touch-target absolute right-4 top-4 inline-flex items-center justify-center rounded-2xl text-slate-300 transition hover:bg-slate-50 hover:text-slate-600"
+          disabled={isSaving}
+          className="touch-target absolute right-4 top-4 inline-flex items-center justify-center rounded-2xl text-slate-300 transition hover:bg-slate-50 hover:text-slate-600 disabled:cursor-wait disabled:opacity-50"
           aria-label="ปิดหน้าต่าง"
         >
           <X size={22} />
@@ -65,7 +74,7 @@ export default function GlucoseModal({ isOpen, onClose, onSave, onNotice }) {
 
           <h3 className="text-2xl font-black tracking-tight text-slate-900">บันทึกค่าน้ำตาล</h3>
           <p className="mt-2 text-sm leading-6 text-slate-500">
-            เลือกช่วงเวลาและใส่ค่าที่วัดได้ เพื่อให้ระบบสรุปแนวโน้มได้แม่นยำขึ้น
+            เลือกช่วงเวลาและใส่ค่าที่วัดได้ ระบบจะบันทึกเข้ารอบมื้อปัจจุบันให้อัตโนมัติ
           </p>
 
           <div className="mt-5 rounded-full bg-slate-50 px-4 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">
@@ -76,6 +85,7 @@ export default function GlucoseModal({ isOpen, onClose, onSave, onNotice }) {
             <PhaseButton
               active={mealPhase === 'before'}
               onClick={() => setMealPhase('before')}
+              disabled={isSaving}
               icon={<Clock size={16} strokeWidth={3} />}
               label="ก่อนอาหาร"
               tone="blue"
@@ -83,6 +93,7 @@ export default function GlucoseModal({ isOpen, onClose, onSave, onNotice }) {
             <PhaseButton
               active={mealPhase === 'after'}
               onClick={() => setMealPhase('after')}
+              disabled={isSaving}
               icon={<Utensils size={16} strokeWidth={3} />}
               label="หลังอาหาร"
               tone="orange"
@@ -97,26 +108,26 @@ export default function GlucoseModal({ isOpen, onClose, onSave, onNotice }) {
               min="20"
               max="600"
               step="1"
-              className="w-full bg-transparent text-center text-6xl font-black tracking-tight text-slate-800 outline-none placeholder:text-slate-200"
+              disabled={isSaving}
+              className="w-full bg-transparent text-center text-6xl font-black tracking-tight text-slate-800 outline-none placeholder:text-slate-200 disabled:cursor-wait disabled:opacity-70"
               placeholder="000"
               value={value}
               onChange={(event) => setValue(event.target.value)}
-              onKeyDown={(event) => event.key === 'Enter' && handleSave()}
+              onKeyDown={(event) => event.key === 'Enter' && void handleSave()}
             />
-            <p className="mt-3 text-xs font-black uppercase tracking-[0.28em] text-slate-400">
-              mg/dL
-            </p>
+            <p className="mt-3 text-xs font-black uppercase tracking-[0.28em] text-slate-400">mg/dL</p>
           </div>
 
           <button
-            onClick={handleSave}
-            className={`touch-target mt-8 flex w-full items-center justify-center rounded-[1.75rem] py-4 text-base font-black text-white shadow-xl transition active:scale-95 ${
+            onClick={() => void handleSave()}
+            disabled={isSaving}
+            className={`touch-target mt-8 flex w-full items-center justify-center rounded-[1.75rem] py-4 text-base font-black text-white shadow-xl transition active:scale-95 disabled:cursor-wait disabled:opacity-70 ${
               mealPhase === 'before'
                 ? 'bg-blue-600 shadow-blue-100 hover:bg-blue-700'
                 : 'bg-orange-500 shadow-orange-100 hover:bg-orange-600'
             }`}
           >
-            ยืนยันบันทึก
+            {isSaving ? 'กำลังบันทึก...' : 'ยืนยันบันทึก'}
           </button>
         </div>
       </div>
@@ -124,7 +135,7 @@ export default function GlucoseModal({ isOpen, onClose, onSave, onNotice }) {
   );
 }
 
-function PhaseButton({ active, onClick, icon, label, tone }) {
+function PhaseButton({ active, onClick, icon, label, tone, disabled = false }) {
   const toneClass =
     tone === 'blue'
       ? active
@@ -138,7 +149,8 @@ function PhaseButton({ active, onClick, icon, label, tone }) {
     <button
       type="button"
       onClick={onClick}
-      className={`touch-target flex items-center justify-center gap-2 rounded-[1.5rem] border-2 px-4 py-4 text-sm font-black uppercase tracking-[0.16em] transition active:scale-[0.99] ${toneClass}`}
+      disabled={disabled}
+      className={`touch-target flex items-center justify-center gap-2 rounded-[1.5rem] border-2 px-4 py-4 text-sm font-black uppercase tracking-[0.16em] transition active:scale-[0.99] disabled:cursor-wait disabled:opacity-60 ${toneClass}`}
     >
       {icon}
       {label}

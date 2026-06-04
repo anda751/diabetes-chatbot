@@ -375,7 +375,7 @@ function getSafeUser(user) {
 
 async function getLatestGlucoseRecord(userId) {
   return db.get(
-    "SELECT * FROM glucose_history WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+    "SELECT * FROM glucose_history WHERE user_id = ? ORDER BY recorded_at DESC NULLS LAST, id DESC LIMIT 1",
     [userId]
   );
 }
@@ -545,6 +545,13 @@ function validateAllergy(allergy) {
   return "";
 }
 
+function validateChatMessage(message) {
+  const value = normalizeText(message);
+  if (!value) return "กรุณาระบุข้อความที่ต้องการถาม";
+  if (value.length > 1000) return "ข้อความยาวเกินไป กรุณาพิมพ์ไม่เกิน 1000 ตัวอักษร";
+  return "";
+}
+
 function validateGlucoseValue(value) {
   const num = toNumber(value);
   if (!Number.isFinite(num)) return "กรุณากรอกค่าน้ำตาลเป็นตัวเลข";
@@ -565,11 +572,10 @@ function validateTimeText(time) {
   return normalizeText(time) ? "" : "กรุณาระบุเวลา";
 }
 
-function validateChatMessage(message) {
-  const value = normalizeText(message);
-  if (!value) return "กรุณาระบุข้อความที่ต้องการถาม";
-  if (value.length > 1000) return "ข้อความยาวเกินไป กรุณาพิมพ์ไม่เกิน 1000 ตัวอักษร";
-  return "";
+function validateRecordedAt(recordedAt) {
+  const value = normalizeText(recordedAt);
+  if (!value) return "";
+  return Number.isNaN(Date.parse(value)) ? "วันเวลาบันทึกค่าน้ำตาลไม่ถูกต้อง" : "";
 }
 
 function extractJsonObject(text) {
@@ -1074,7 +1080,311 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 app.get("/api/glucose", requireAuth, async (req, res) => {
   try {
     const history = await db.all(
-      "SELECT * FROM glucose_history WHERE user_id = ? ORDER BY id DESC",
+      "SELECT * FROM glucose_history WHERE user_id = ? ORDER BY recorded_at DESC NULLS LAST, id DESC",
+      [req.authUser.id]
+    );
+
+    return res.json(history);
+  } catch (error) {
+    console.error("Fetch glucose error:", error);
+    return res.status(500).json({ error: "ดึงข้อมูลค่าน้ำตาลไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/glucose", requireAuth, async (req, res) => {
+  const payload = {
+    value: req.body?.value,
+    phase: req.body?.phase,
+    date: req.body?.date,
+    time: req.body?.time,
+    recordedAt: req.body?.recordedAt,
+    reminderSlotKey: req.body?.reminderSlotKey,
+  };
+
+  try {
+    const validationError =
+      validateGlucoseValue(payload.value) ||
+      validateGlucosePhase(payload.phase) ||
+      validateDateText(payload.date) ||
+      validateTimeText(payload.time) ||
+      validateRecordedAt(payload.recordedAt);
+
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    await db.run(
+      "INSERT INTO glucose_history (user_id, value, phase, date, time, recorded_at, reminder_slot_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [
+        req.authUser.id,
+        Number.parseInt(payload.value, 10),
+        String(payload.phase),
+        normalizeText(payload.date),
+        normalizeText(payload.time),
+        normalizeText(payload.recordedAt) || new Date().toISOString(),
+        normalizeText(payload.reminderSlotKey),
+      ]
+    );
+
+    return res.json({ status: "success" });
+  } catch (error) {
+    console.error("Save glucose error:", error);
+    return res.status(500).json({ error: "บันทึกค่าน้ำตาลไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/reminders", requireAuth, async (req, res) => {
+  try {
+    const reminders = await getMealReminders(req.authUser.id);
+    res.json({ reminders });
+  } catch (error) {
+    console.error("Fetch reminders error:", error);
+    res.status(500).json({ error: "ดึงรายการแจ้งเตือนไม่สำเร็จ" });
+  }
+});
+
+app.put("/api/reminders", requireAuth, async (req, res) => {
+  const reminders = req.body?.reminders;
+
+  try {
+    const validationError = validateReminderList(reminders);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    await saveMealReminders(req.authUser.id, reminders);
+    const savedReminders = await getMealReminders(req.authUser.id);
+    res.json({ status: "success", reminders: savedReminders });
+  } catch (error) {
+    console.error("Save reminders error:", error);
+    res.status(500).json({ error: "บันทึกรายการแจ้งเตือนไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/push-subscriptions", requireAuth, async (req, res) => {
+  const subscription = req.body?.subscription;
+
+  try {
+    const validationError = validatePushSubscription(subscription);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    await db.run(
+      `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, user_agent)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(endpoint) DO UPDATE
+       SET user_id = EXCLUDED.user_id,
+           p256dh = EXCLUDED.p256dh,
+           auth = EXCLUDED.auth,
+           user_agent = EXCLUDED.user_agent`,
+      [
+        req.authUser.id,
+        normalizeText(subscription.endpoint),
+        normalizeText(subscription.keys?.p256dh),
+        normalizeText(subscription.keys?.auth),
+        normalizeText(req.headers["user-agent"] || ""),
+      ]
+    );
+
+    res.json({ status: "success" });
+  } catch (error) {
+    console.error("Save push subscription error:", error);
+    res.status(500).json({ error: "บันทึกการสมัครรับแจ้งเตือนไม่สำเร็จ" });
+  }
+});
+
+app.delete("/api/push-subscriptions", requireAuth, async (req, res) => {
+  const endpoint = normalizeText(req.body?.endpoint);
+
+  try {
+    if (!endpoint) {
+      return res.status(400).json({ error: "กรุณาระบุ subscription ที่ต้องการลบ" });
+    }
+
+    await deletePushSubscription(endpoint);
+    res.json({ status: "success" });
+  } catch (error) {
+    console.error("Delete push subscription error:", error);
+    res.status(500).json({ error: "ลบการสมัครรับแจ้งเตือนไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/update-profile", requireAuth, async (req, res) => {
+  const payload = {
+    id: req.authUser.id,
+    name: normalizeText(req.body?.name),
+    weight: toNumber(req.body?.weight),
+    height: toNumber(req.body?.height),
+    stage: String(req.body?.stage ?? ""),
+    allergy: normalizeText(req.body?.allergy || ""),
+    treatment: String(req.body?.treatment ?? ""),
+  };
+
+  try {
+    const validationError = validateProfilePayload(payload);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    const heightMeters = payload.height / 100;
+    const bmi = (payload.weight / (heightMeters * heightMeters)).toFixed(1);
+
+    await db.run(
+      `UPDATE users SET
+        name = ?,
+        weight = ?,
+        height = ?,
+        bmi = ?,
+        stage = ?,
+        allergy = ?,
+        treatment = ?
+       WHERE id = ?`,
+      [
+        payload.name,
+        payload.weight,
+        payload.height,
+        bmi,
+        payload.stage,
+        payload.allergy || "ไม่มี",
+        payload.treatment,
+        req.authUser.id,
+      ]
+    );
+
+    const updatedUser = await db.get("SELECT * FROM users WHERE id = ?", [req.authUser.id]);
+    res.json({
+      status: "success",
+      message: "อัปเดตโปรไฟล์สำเร็จ",
+      user: getSafeUser(updatedUser),
+    });
+  } catch (error) {
+    console.error("Update profile error:", error);
+    res.status(500).json({ error: "บันทึกข้อมูลไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/chat", requireAuth, async (req, res) => {
+  const message = normalizeText(req.body?.message);
+
+  try {
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ text: "ระบบ AI ยังไม่ได้ตั้งค่า API key" });
+    }
+
+    const validationError = validateChatMessage(message);
+    if (validationError) {
+      return res.status(400).json({ text: validationError });
+    }
+
+    const lastGlucose = await getLatestGlucoseRecord(req.authUser.id);
+    const intent = findIntentRule("", message);
+
+    try {
+      await db.run(
+        `INSERT INTO question_stats (question_text, count)
+         VALUES (?, 1)
+         ON CONFLICT(question_text) DO UPDATE
+         SET count = question_stats.count + 1`,
+        [intent.label]
+      );
+    } catch (error) {
+      console.warn("Intent recording error:", error?.message || error);
+    }
+
+    const prompt = buildDiabetesChatPrompt({
+      user: req.authUser,
+      lastGlucose,
+      message,
+      intent,
+    });
+
+    try {
+      const { text, model } = await generateWithFallback(prompt);
+      const cleanedText = normalizeText(text).replace(/\n{3,}/g, "\n\n");
+
+      if (!cleanedText) {
+        return res.json({
+          text: buildIntentFallbackResponse({ intent, lastGlucose }),
+          model: "fallback",
+        });
+      }
+
+      return res.json({ text: cleanedText, model });
+    } catch (error) {
+      console.error("Chat error:", error);
+      return res.json({
+        text: buildIntentFallbackResponse({ intent, lastGlucose }),
+        model: "fallback",
+      });
+    }
+  } catch (error) {
+    console.error("Chat error:", error);
+    const details = error?.message ? ` (${error.message})` : "";
+    res.status(500).json({ text: `ขออภัยค่ะ หมอ AI ติดขัดเล็กน้อย${details}` });
+  }
+});
+
+app.get("/api/glucose", requireAuth, async (req, res) => {
+  try {
+    const history = await db.all(
+      "SELECT * FROM glucose_history WHERE user_id = ? ORDER BY recorded_at DESC NULLS LAST, id DESC",
+      [req.authUser.id]
+    );
+
+    return res.json(history);
+  } catch (error) {
+    console.error("Fetch glucose error:", error);
+    return res.status(500).json({ error: "ดึงข้อมูลค่าน้ำตาลไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/glucose", requireAuth, async (req, res) => {
+  const payload = {
+    value: req.body?.value,
+    phase: req.body?.phase,
+    date: req.body?.date,
+    time: req.body?.time,
+    recordedAt: req.body?.recordedAt,
+    reminderSlotKey: req.body?.reminderSlotKey,
+  };
+
+  try {
+    const validationError =
+      validateGlucoseValue(payload.value) ||
+      validateGlucosePhase(payload.phase) ||
+      validateDateText(payload.date) ||
+      validateTimeText(payload.time) ||
+      validateRecordedAt(payload.recordedAt);
+
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    await db.run(
+      "INSERT INTO glucose_history (user_id, value, phase, date, time, recorded_at, reminder_slot_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [
+        req.authUser.id,
+        Number.parseInt(payload.value, 10),
+        String(payload.phase),
+        normalizeText(payload.date),
+        normalizeText(payload.time),
+        normalizeText(payload.recordedAt) || new Date().toISOString(),
+        normalizeText(payload.reminderSlotKey),
+      ]
+    );
+
+    return res.json({ status: "success" });
+  } catch (error) {
+    console.error("Save glucose error:", error);
+    return res.status(500).json({ error: "บันทึกค่าน้ำตาลไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/glucose", requireAuth, async (req, res) => {
+  try {
+    const history = await db.all(
+      "SELECT * FROM glucose_history WHERE user_id = ? ORDER BY recorded_at DESC NULLS LAST, id DESC",
       [req.authUser.id]
     );
 

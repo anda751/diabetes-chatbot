@@ -69,6 +69,31 @@ const parseReminderMinutes = (timeValue) => {
   return parsedHour * 60 + parsedMinute;
 };
 
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'));
+const MINUTE_OPTIONS = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, '0'));
+
+const getThaiTimeLabel = (timeValue) => {
+  if (typeof timeValue !== 'string' || !/^\d{2}:\d{2}$/.test(timeValue)) {
+    return 'กรุณาเลือกเวลา';
+  }
+
+  const [hourText = '00', minuteText = '00'] = timeValue.split(':');
+  const hour = Number.parseInt(hourText, 10);
+  const minute = Number.parseInt(minuteText, 10);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) {
+    return 'กรุณาเลือกเวลา';
+  }
+
+  const minuteSuffix = minute === 0 ? 'ตรง' : `${minute} นาที`;
+
+  if (hour === 0) return `เที่ยงคืน ${minuteSuffix}`;
+  if (hour >= 1 && hour <= 5) return `ตี ${hour} ${minuteSuffix}`;
+  if (hour >= 6 && hour <= 11) return `${hour} โมงเช้า ${minuteSuffix}`;
+  if (hour === 12) return `เที่ยง ${minuteSuffix}`;
+  if (hour >= 13 && hour <= 18) return `บ่าย ${hour - 12} โมง ${minuteSuffix}`;
+  return `${hour - 18} ทุ่ม ${minuteSuffix}`;
+};
+
 const buildReminderSlotKey = (reminder, date = new Date()) =>
   `${getDayKey(date)}:${reminder.id}:${reminder.time}`;
 
@@ -277,6 +302,25 @@ export default function DashboardPage({
           nextReminder.completedSlotKey = '';
         }
         return nextReminder;
+      })
+    );
+  };
+
+  const handleReminderTimePartChange = (reminderId, part, value) => {
+    const selectedValue = String(value || '').padStart(2, '0');
+    updateReminders((previous) =>
+      previous.map((item) => {
+        if (item.id !== reminderId) return item;
+
+        const [currentHour = '08', currentMinute = '00'] = String(item.time || '08:00').split(':');
+        const nextHour = part === 'hour' ? selectedValue : currentHour;
+        const nextMinute = part === 'minute' ? selectedValue : currentMinute;
+
+        return {
+          ...item,
+          time: `${nextHour}:${nextMinute}`,
+          completedSlotKey: '',
+        };
       })
     );
   };
@@ -572,13 +616,44 @@ export default function DashboardPage({
                     </div>
 
                     {isSettingReminders ? (
-                      <div className="mt-4 flex flex-wrap items-center gap-3">
-                        <input
-                          type="time"
-                          value={reminder.time}
-                          onChange={(event) => handleReminderChange(reminder.id, 'time', event.target.value)}
-                          className="min-h-[48px] rounded-2xl border border-slate-200 px-4 text-base text-slate-900 outline-none transition focus:border-emerald-400"
-                        />
+                      <div className="mt-4 space-y-3">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700">
+                            <span>ชั่วโมง</span>
+                            <select
+                              value={String(reminder.time || '08:00').split(':')[0] || '08'}
+                              onChange={(event) => handleReminderTimePartChange(reminder.id, 'hour', event.target.value)}
+                              className="rounded-xl bg-transparent text-base font-bold text-slate-900 outline-none"
+                            >
+                              {HOUR_OPTIONS.map((hour) => (
+                                <option key={hour} value={hour}>
+                                  {hour}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700">
+                            <span>นาที</span>
+                            <select
+                              value={String(reminder.time || '08:00').split(':')[1] || '00'}
+                              onChange={(event) => handleReminderTimePartChange(reminder.id, 'minute', event.target.value)}
+                              className="rounded-xl bg-transparent text-base font-bold text-slate-900 outline-none"
+                            >
+                              {MINUTE_OPTIONS.map((minute) => (
+                                <option key={minute} value={minute}>
+                                  {minute}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                            {reminder.time} น.
+                          </div>
+                        </div>
+                        <p className="rounded-2xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
+                          ระบบจะเตือนเวลา {reminder.time} น. ({getThaiTimeLabel(reminder.time)})
+                        </p>
+                        <div className="flex flex-wrap items-center gap-3">
                         <button
                           type="button"
                           onClick={() => handleReminderChange(reminder.id, 'completedSlotKey', '')}
@@ -595,6 +670,7 @@ export default function DashboardPage({
                             ลบมื้อนี้
                           </button>
                         ) : null}
+                        </div>
                       </div>
                     ) : (
                       <button

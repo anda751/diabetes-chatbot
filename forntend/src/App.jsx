@@ -29,6 +29,11 @@ const DEFAULT_SCREEN = 'login';
 const REMINDER_STORAGE_KEY = 'meal_reminders';
 const REMINDER_ALERTS_KEY = 'meal_reminder_alerts';
 const PUSH_ENDPOINT_STORAGE_KEY = 'push_subscription_endpoint';
+const DEFAULT_MEAL_REMINDERS = [
+  { id: 'breakfast', label: 'อาหารเช้า', time: '08:00', isEnabled: true, completedSlotKey: '' },
+  { id: 'lunch', label: 'อาหารกลางวัน', time: '12:00', isEnabled: true, completedSlotKey: '' },
+  { id: 'dinner', label: 'อาหารเย็น', time: '18:00', isEnabled: true, completedSlotKey: '' },
+];
 const APP_SCREENS = [
   'login',
   'register',
@@ -95,9 +100,12 @@ function loadMealRemindersFromStorage() {
 
   try {
     const saved = window.localStorage.getItem(REMINDER_STORAGE_KEY);
-    return saved ? JSON.parse(saved) : [];
+    if (!saved) return DEFAULT_MEAL_REMINDERS;
+
+    const parsed = JSON.parse(saved);
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_MEAL_REMINDERS;
   } catch {
-    return [];
+    return DEFAULT_MEAL_REMINDERS;
   }
 }
 
@@ -167,12 +175,13 @@ function getActiveReminderForDate(reminders, date = new Date()) {
 function getCurrentMealSlotGlucoseSummary(history, reminders, date = new Date()) {
   const activeReminder = getActiveReminderForDate(reminders, date);
   if (!activeReminder) {
-    const latestRecord = Array.isArray(history) ? history[0] || null : null;
+    const historyList = Array.isArray(history) ? history : [];
+    const latestRecord = historyList[0] || null;
     return {
       activeReminder: null,
       slotKey: '',
-      beforeRecord: latestRecord?.phase === 'before' ? latestRecord : null,
-      afterRecord: latestRecord?.phase === 'after' ? latestRecord : null,
+      beforeRecord: historyList.find((item) => item?.phase === 'before') || null,
+      afterRecord: historyList.find((item) => item?.phase === 'after') || null,
       latestRecord,
     };
   }
@@ -826,8 +835,10 @@ export default function App() {
 
       const data = await response.json();
       if (Array.isArray(data.reminders)) {
+        const incomingReminders =
+          data.reminders.length > 0 ? data.reminders : loadMealRemindersFromStorage();
         setReminders((prev) =>
-          data.reminders.map((item) => {
+          incomingReminders.map((item) => {
             const previous = prev.find((entry) => String(entry.id) === String(item.id));
             return {
               ...item,

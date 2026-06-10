@@ -1381,57 +1381,6 @@ app.post("/api/glucose", requireAuth, async (req, res) => {
   }
 });
 
-app.get("/api/glucose", requireAuth, async (req, res) => {
-  try {
-    const history = await db.all(
-      "SELECT * FROM glucose_history WHERE user_id = ? ORDER BY recorded_at DESC NULLS LAST, id DESC",
-      [req.authUser.id]
-    );
-
-    res.json(history);
-  } catch (error) {
-    console.error("Fetch glucose error:", error);
-    res.status(500).json({ error: "ดึงข้อมูลล้มเหลว" });
-  }
-});
-
-app.post("/api/glucose", requireAuth, async (req, res) => {
-  const payload = {
-    value: req.body?.value,
-    phase: req.body?.phase,
-    date: req.body?.date,
-    time: req.body?.time,
-  };
-
-  try {
-    const validationError =
-      validateGlucoseValue(payload.value) ||
-      validateGlucosePhase(payload.phase) ||
-      validateDateText(payload.date) ||
-      validateTimeText(payload.time);
-
-    if (validationError) {
-      return res.status(400).json({ error: validationError });
-    }
-
-    await db.run(
-      "INSERT INTO glucose_history (user_id, value, phase, date, time) VALUES (?, ?, ?, ?, ?)",
-      [
-        req.authUser.id,
-        Number.parseInt(payload.value, 10),
-        String(payload.phase),
-        normalizeText(payload.date),
-        normalizeText(payload.time),
-      ]
-    );
-
-    res.json({ status: "success" });
-  } catch (error) {
-    console.error("Save glucose error:", error);
-    res.status(500).json({ error: "บันทึกไม่สำเร็จ" });
-  }
-});
-
 app.get("/api/admin/stats", async (_req, res) => {
   try {
     const stats = await db.all("SELECT * FROM question_stats ORDER BY count DESC");

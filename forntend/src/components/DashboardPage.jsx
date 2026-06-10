@@ -69,9 +69,6 @@ const parseReminderMinutes = (timeValue) => {
   return parsedHour * 60 + parsedMinute;
 };
 
-const HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, '0'));
-const MINUTE_OPTIONS = Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, '0'));
-
 const getThaiTimeLabel = (timeValue) => {
   if (typeof timeValue !== 'string' || !/^\d{2}:\d{2}$/.test(timeValue)) {
     return 'กรุณาเลือกเวลา';
@@ -92,6 +89,15 @@ const getThaiTimeLabel = (timeValue) => {
   if (hour === 12) return `เที่ยง ${minuteSuffix}`;
   if (hour >= 13 && hour <= 18) return `บ่าย ${hour - 12} โมง ${minuteSuffix}`;
   return `${hour - 18} ทุ่ม ${minuteSuffix}`;
+};
+
+const sanitizeTimePart = (value, maxValue) => {
+  const digitsOnly = String(value ?? '').replace(/\D/g, '').slice(0, 2);
+  if (!digitsOnly) return '';
+
+  const parsed = Number.parseInt(digitsOnly, 10);
+  if (Number.isNaN(parsed)) return '';
+  return String(Math.min(parsed, maxValue)).padStart(2, '0');
 };
 
 const buildReminderSlotKey = (reminder, date = new Date()) =>
@@ -307,14 +313,13 @@ export default function DashboardPage({
   };
 
   const handleReminderTimePartChange = (reminderId, part, value) => {
-    const selectedValue = String(value || '').padStart(2, '0');
     updateReminders((previous) =>
       previous.map((item) => {
         if (item.id !== reminderId) return item;
 
         const [currentHour = '08', currentMinute = '00'] = String(item.time || '08:00').split(':');
-        const nextHour = part === 'hour' ? selectedValue : currentHour;
-        const nextMinute = part === 'minute' ? selectedValue : currentMinute;
+        const nextHour = part === 'hour' ? sanitizeTimePart(value, 23) || '00' : currentHour;
+        const nextMinute = part === 'minute' ? sanitizeTimePart(value, 59) || '00' : currentMinute;
 
         return {
           ...item,
@@ -618,36 +623,37 @@ export default function DashboardPage({
                     {isSettingReminders ? (
                       <div className="mt-4 space-y-3">
                         <div className="flex flex-wrap items-center gap-3">
-                          <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700">
-                            <span>ชั่วโมง</span>
-                            <select
-                              value={String(reminder.time || '08:00').split(':')[0] || '08'}
-                              onChange={(event) => handleReminderTimePartChange(reminder.id, 'hour', event.target.value)}
-                              className="rounded-xl bg-transparent text-base font-bold text-slate-900 outline-none"
-                            >
-                              {HOUR_OPTIONS.map((hour) => (
-                                <option key={hour} value={hour}>
-                                  {hour}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                          <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700">
-                            <span>นาที</span>
-                            <select
-                              value={String(reminder.time || '08:00').split(':')[1] || '00'}
-                              onChange={(event) => handleReminderTimePartChange(reminder.id, 'minute', event.target.value)}
-                              className="rounded-xl bg-transparent text-base font-bold text-slate-900 outline-none"
-                            >
-                              {MINUTE_OPTIONS.map((minute) => (
-                                <option key={minute} value={minute}>
-                                  {minute}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
+                          <div className="flex items-center gap-2 rounded-[22px] border border-slate-200 bg-slate-50 px-3 py-2.5">
+                            <div className="flex flex-col">
+                              <span className="text-[11px] font-semibold text-slate-400">ชั่วโมง</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                maxLength={2}
+                                value={String(reminder.time || '08:00').split(':')[0] || '08'}
+                                onChange={(event) => handleReminderTimePartChange(reminder.id, 'hour', event.target.value)}
+                                className="mt-1 h-11 w-16 rounded-2xl border border-slate-200 bg-white px-3 text-center text-lg font-black text-slate-900 outline-none transition focus:border-emerald-400"
+                                aria-label="ชั่วโมง"
+                              />
+                            </div>
+                            <span className="pt-5 text-xl font-black text-slate-400">:</span>
+                            <div className="flex flex-col">
+                              <span className="text-[11px] font-semibold text-slate-400">นาที</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                maxLength={2}
+                                value={String(reminder.time || '08:00').split(':')[1] || '00'}
+                                onChange={(event) => handleReminderTimePartChange(reminder.id, 'minute', event.target.value)}
+                                className="mt-1 h-11 w-16 rounded-2xl border border-slate-200 bg-white px-3 text-center text-lg font-black text-slate-900 outline-none transition focus:border-emerald-400"
+                                aria-label="นาที"
+                              />
+                            </div>
+                          </div>
                           <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
-                            {reminder.time} น.
+                            เวลา {reminder.time} น.
                           </div>
                         </div>
                         <p className="rounded-2xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">

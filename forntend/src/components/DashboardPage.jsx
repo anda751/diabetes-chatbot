@@ -242,14 +242,24 @@ export default function DashboardPage({
 
   const now = useMemo(() => new Date(timeMarker), [timeMarker]);
   const reminders = useMemo(() => loadMealReminders(mealReminders), [mealReminders]);
+  const [draftReminders, setDraftReminders] = useState(() => reminders);
+
+  useEffect(() => {
+    setDraftReminders(reminders);
+  }, [reminders]);
+
   const sortedReminders = useMemo(
     () => [...reminders].sort((left, right) => parseReminderMinutes(left.time) - parseReminderMinutes(right.time)),
     [reminders]
   );
+  const sortedDraftReminders = useMemo(
+    () => [...draftReminders].sort((left, right) => parseReminderMinutes(left.time) - parseReminderMinutes(right.time)),
+    [draftReminders]
+  );
 
   const visibleReminders = useMemo(() => {
     if (isSettingReminders) {
-      return sortedReminders;
+      return sortedDraftReminders;
     }
 
     return sortedReminders.filter((item) => {
@@ -257,7 +267,7 @@ export default function DashboardPage({
       const currentSlotKey = buildReminderSlotKey(item, now);
       return String(item.completedSlotKey || '') !== currentSlotKey;
     });
-  }, [isSettingReminders, now, sortedReminders]);
+  }, [isSettingReminders, now, sortedDraftReminders, sortedReminders]);
 
   const reminderSummaryText = useMemo(() => {
     if (visibleReminders.length === 0) {
@@ -278,15 +288,34 @@ export default function DashboardPage({
   const beforeTone = statusToneByValue(beforeGlucose?.value);
   const afterTone = statusToneByValue(afterGlucose?.value);
 
-  const updateReminders = (updater) => {
-    const nextValue = typeof updater === 'function' ? updater(reminders) : updater;
+  const updateReminderDraft = (updater) => {
+    setDraftReminders((previous) => {
+      const nextValue = typeof updater === 'function' ? updater(previous) : updater;
+      return loadMealReminders(nextValue);
+    });
+  };
+
+  const commitReminderDraft = (nextValue = draftReminders) => {
     if (typeof onMealRemindersChange === 'function') {
-      onMealRemindersChange(nextValue);
+      onMealRemindersChange(loadMealReminders(nextValue));
     }
   };
 
+  const toggleReminderSettingMode = () => {
+    if (isSettingReminders) {
+      commitReminderDraft();
+      setIsSettingReminders(false);
+      return;
+    }
+
+    setDraftReminders(reminders);
+    setIsSettingReminders(true);
+  };
+
   const handleAddReminder = () => {
-    const extraCount = reminders.filter((item) => !DEFAULT_MEAL_REMINDERS.some((defaultReminder) => defaultReminder.id === item.id)).length;
+    const extraCount = draftReminders.filter(
+      (item) => !DEFAULT_MEAL_REMINDERS.some((defaultReminder) => defaultReminder.id === item.id)
+    ).length;
     const nextReminder = {
       id: `extra-${Date.now()}`,
       label: `มื้อเพิ่มเติม ${extraCount + 1}`,
@@ -295,11 +324,11 @@ export default function DashboardPage({
       completedSlotKey: '',
     };
 
-    updateReminders((previous) => [...previous, nextReminder]);
+    updateReminderDraft((previous) => [...previous, nextReminder]);
   };
 
   const handleReminderChange = (reminderId, field, value) => {
-    updateReminders((previous) =>
+    updateReminderDraft((previous) =>
       previous.map((item) => {
         if (item.id !== reminderId) return item;
 
@@ -313,13 +342,13 @@ export default function DashboardPage({
   };
 
   const handleReminderTimePartChange = (reminderId, part, value) => {
-    updateReminders((previous) =>
+    updateReminderDraft((previous) =>
       previous.map((item) => {
         if (item.id !== reminderId) return item;
 
         const [currentHour = '08', currentMinute = '00'] = String(item.time || '08:00').split(':');
-        const nextHour = part === 'hour' ? sanitizeTimePart(value, 23) || '00' : currentHour;
-        const nextMinute = part === 'minute' ? sanitizeTimePart(value, 59) || '00' : currentMinute;
+        const nextHour = part === 'hour' ? sanitizeTimePart(value, 23) || currentHour : currentHour;
+        const nextMinute = part === 'minute' ? sanitizeTimePart(value, 59) || currentMinute : currentMinute;
 
         return {
           ...item,
@@ -330,21 +359,49 @@ export default function DashboardPage({
     );
   };
 
+  const adjustReminderTimePart = (reminderId, part, delta) => {
+    updateReminderDraft((previous) =>
+      previous.map((item) => {
+        if (item.id !== reminderId) return item;
+
+        const [currentHour = '08', currentMinute = '00'] = String(item.time || '08:00').split(':');
+        const hourNumber = Number.parseInt(currentHour, 10) || 0;
+        const minuteNumber = Number.parseInt(currentMinute, 10) || 0;
+
+        if (part === 'hour') {
+          const nextHour = (hourNumber + delta + 24) % 24;
+          return {
+            ...item,
+            time: `${String(nextHour).padStart(2, '0')}:${String(minuteNumber).padStart(2, '0')}`,
+            completedSlotKey: '',
+          };
+        }
+
+        const nextMinute = (minuteNumber + delta + 60) % 60;
+        return {
+          ...item,
+          time: `${String(hourNumber).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`,
+          completedSlotKey: '',
+        };
+      })
+    );
+  };
+
   const handleRemoveReminder = (reminderId) => {
-    updateReminders((previous) => previous.filter((item) => item.id !== reminderId));
+    updateReminderDraft((previous) => previous.filter((item) => item.id !== reminderId));
   };
 
   const handleCheckMeal = (reminderId) => {
     const timestamp = new Date();
-    updateReminders((previous) =>
-      previous.map((item) => {
-        if (item.id !== reminderId) return item;
-        return {
-          ...item,
-          completedSlotKey: buildReminderSlotKey(item, timestamp),
-        };
-      })
-    );
+    const nextValue = reminders.map((item) => {
+      if (item.id !== reminderId) return item;
+      return {
+        ...item,
+        completedSlotKey: buildReminderSlotKey(item, timestamp),
+      };
+    });
+
+    commitReminderDraft(nextValue);
   };
 
   return (
@@ -533,7 +590,7 @@ export default function DashboardPage({
 
               <button
                 type="button"
-                onClick={() => setIsSettingReminders((current) => !current)}
+                onClick={toggleReminderSettingMode}
                 className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
               >
                 <Clock3 size={16} />
@@ -569,7 +626,7 @@ export default function DashboardPage({
             <p className="mt-4 rounded-2xl bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">{reminderSummaryText}</p>
 
             <div className="mt-4 space-y-3">
-              {(isSettingReminders ? sortedReminders : visibleReminders).map((reminder) => {
+              {(isSettingReminders ? sortedDraftReminders : visibleReminders).map((reminder) => {
                 const currentSlotKey = buildReminderSlotKey(reminder, now);
                 const isCompleted = reminder.completedSlotKey === currentSlotKey;
                 const isDefaultReminder = DEFAULT_MEAL_REMINDERS.some((item) => item.id === reminder.id);
@@ -622,60 +679,109 @@ export default function DashboardPage({
 
                     {isSettingReminders ? (
                       <div className="mt-4 space-y-3">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <div className="flex items-center gap-2 rounded-[22px] border border-slate-200 bg-slate-50 px-3 py-2.5">
-                            <div className="flex flex-col">
-                              <span className="text-[11px] font-semibold text-slate-400">ชั่วโมง</span>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                maxLength={2}
-                                value={String(reminder.time || '08:00').split(':')[0] || '08'}
-                                onChange={(event) => handleReminderTimePartChange(reminder.id, 'hour', event.target.value)}
-                                className="mt-1 h-11 w-16 rounded-2xl border border-slate-200 bg-white px-3 text-center text-lg font-black text-slate-900 outline-none transition focus:border-emerald-400"
-                                aria-label="ชั่วโมง"
-                              />
-                            </div>
-                            <span className="pt-5 text-xl font-black text-slate-400">:</span>
-                            <div className="flex flex-col">
-                              <span className="text-[11px] font-semibold text-slate-400">นาที</span>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                maxLength={2}
-                                value={String(reminder.time || '08:00').split(':')[1] || '00'}
-                                onChange={(event) => handleReminderTimePartChange(reminder.id, 'minute', event.target.value)}
-                                className="mt-1 h-11 w-16 rounded-2xl border border-slate-200 bg-white px-3 text-center text-lg font-black text-slate-900 outline-none transition focus:border-emerald-400"
-                                aria-label="นาที"
-                              />
+                        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+                          <div className="rounded-[24px] border border-slate-200/80 bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_100%)] p-3 shadow-[0_10px_24px_rgba(15,23,42,0.06)]">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="rounded-[20px] border border-slate-200 bg-white p-3">
+                                <div className="mb-2 flex items-center justify-between">
+                                  <span className="text-[11px] font-semibold text-slate-400">ชั่วโมง</span>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => adjustReminderTimePart(reminder.id, 'hour', -1)}
+                                      className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-base font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100"
+                                      aria-label="ลดชั่วโมง"
+                                    >
+                                      -
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => adjustReminderTimePart(reminder.id, 'hour', 1)}
+                                      className="flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-base font-bold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+                                      aria-label="เพิ่มชั่วโมง"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                </div>
+                                <input
+                                  type="number"
+                                  inputMode="numeric"
+                                  min="0"
+                                  max="23"
+                                  step="1"
+                                  value={Number(String(reminder.time || '08:00').split(':')[0] || '0')}
+                                  onChange={(event) => handleReminderTimePartChange(reminder.id, 'hour', event.target.value)}
+                                  className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-center text-2xl font-black text-slate-900 outline-none transition focus:border-emerald-400 focus:bg-white"
+                                  aria-label="ชั่วโมง"
+                                />
+                              </div>
+
+                              <div className="rounded-[20px] border border-slate-200 bg-white p-3">
+                                <div className="mb-2 flex items-center justify-between">
+                                  <span className="text-[11px] font-semibold text-slate-400">นาที</span>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => adjustReminderTimePart(reminder.id, 'minute', -5)}
+                                      className="flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-base font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-100"
+                                      aria-label="ลดนาที"
+                                    >
+                                      -
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => adjustReminderTimePart(reminder.id, 'minute', 5)}
+                                      className="flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 text-base font-bold text-emerald-700 transition hover:border-emerald-300 hover:bg-emerald-100"
+                                      aria-label="เพิ่มนาที"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+                                </div>
+                                <input
+                                  type="number"
+                                  inputMode="numeric"
+                                  min="0"
+                                  max="59"
+                                  step="1"
+                                  value={Number(String(reminder.time || '08:00').split(':')[1] || '0')}
+                                  onChange={(event) => handleReminderTimePartChange(reminder.id, 'minute', event.target.value)}
+                                  className="h-14 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 text-center text-2xl font-black text-slate-900 outline-none transition focus:border-emerald-400 focus:bg-white"
+                                  aria-label="นาที"
+                                />
+                              </div>
                             </div>
                           </div>
-                          <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
-                            เวลา {reminder.time} น.
+
+                          <div className="flex flex-col justify-between rounded-[24px] bg-slate-900 px-4 py-4 text-white shadow-[0_14px_28px_rgba(15,23,42,0.16)]">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">Reminder Time</p>
+                              <p className="mt-2 text-3xl font-black tracking-tight">{reminder.time}</p>
+                            </div>
+                            <p className="mt-3 text-sm leading-6 text-slate-200">{getThaiTimeLabel(reminder.time)}</p>
                           </div>
                         </div>
                         <p className="rounded-2xl bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
-                          ระบบจะเตือนเวลา {reminder.time} น. ({getThaiTimeLabel(reminder.time)})
+                          ระบบจะแจ้งเตือนเวลา {reminder.time} น. ({getThaiTimeLabel(reminder.time)})
                         </p>
                         <div className="flex flex-wrap items-center gap-3">
-                        <button
-                          type="button"
-                          onClick={() => handleReminderChange(reminder.id, 'completedSlotKey', '')}
-                          className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300"
-                        >
-                          รีเซ็ตสถานะ
-                        </button>
-                        {!isDefaultReminder ? (
                           <button
                             type="button"
-                            onClick={() => handleRemoveReminder(reminder.id)}
-                            className="rounded-2xl border border-rose-200 px-4 py-3 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50"
+                            onClick={() => handleReminderChange(reminder.id, 'completedSlotKey', '')}
+                            className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-600 transition hover:border-slate-300"
                           >
-                            ลบมื้อนี้
+                            รีเซ็ตสถานะ
                           </button>
-                        ) : null}
+                          {!isDefaultReminder ? (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveReminder(reminder.id)}
+                              className="rounded-2xl border border-rose-200 px-4 py-3 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50"
+                            >
+                              ลบมื้อนี้
+                            </button>
+                          ) : null}
                         </div>
                       </div>
                     ) : (
@@ -687,8 +793,7 @@ export default function DashboardPage({
                         ทำเครื่องหมายว่ารับประทานแล้ว
                       </button>
                     )}
-                  </div>
-                );
+                  </div>                );
               })}
             </div>
           </section>

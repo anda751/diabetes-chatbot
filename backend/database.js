@@ -75,6 +75,7 @@ export async function initDB() {
       username TEXT UNIQUE NOT NULL,
       password TEXT NOT NULL,
       name TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
       weight DOUBLE PRECISION DEFAULT 0,
       height DOUBLE PRECISION DEFAULT 0,
       bmi DOUBLE PRECISION DEFAULT 0,
@@ -112,6 +113,8 @@ export async function initDB() {
       id BIGSERIAL PRIMARY KEY,
       question_text TEXT UNIQUE,
       intent_key TEXT DEFAULT 'general',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
       count INTEGER DEFAULT 1
     )
   `);
@@ -119,6 +122,21 @@ export async function initDB() {
   await db.exec(`
     ALTER TABLE question_stats
     ADD COLUMN IF NOT EXISTS intent_key TEXT DEFAULT 'general'
+  `);
+
+  await db.exec(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()
+  `);
+
+  await db.exec(`
+    ALTER TABLE question_stats
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()
+  `);
+
+  await db.exec(`
+    ALTER TABLE question_stats
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
   `);
 
   await db.exec(`
@@ -142,6 +160,18 @@ export async function initDB() {
       p256dh TEXT NOT NULL,
       auth TEXT NOT NULL,
       user_agent TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS ai_chat_logs (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+      question_text TEXT NOT NULL,
+      intent_key TEXT DEFAULT 'general',
+      response_model TEXT DEFAULT '',
+      used_fallback BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);

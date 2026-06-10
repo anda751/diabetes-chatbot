@@ -129,6 +129,7 @@ const GLUCOSE_PHASE_OPTIONS = new Set(["before", "after"]);
 const USERNAME_REGEX = /^[A-Za-z0-9._-]{4,20}$/;
 
 const SESSION_COOKIE_NAME = "diabetes_session";
+const ADMIN_SESSION_COOKIE_NAME = "diabetes_admin_session";
 const SESSION_TTL_MS = Number.parseInt(process.env.SESSION_TTL_MS || "", 10) || 1000 * 60 * 60 * 24 * 7;
 const SESSION_SECRET = getRequiredEnv("SESSION_SECRET", {
   allowDevFallback: true,
@@ -139,6 +140,14 @@ const SESSION_COOKIE_SECURE =
   process.env.SESSION_COOKIE_SECURE === "true" ||
   SESSION_COOKIE_SAME_SITE.toLowerCase() === "none" ||
   Boolean(process.env.VERCEL);
+const ADMIN_USERNAME = getRequiredEnv("ADMIN_USERNAME", {
+  allowDevFallback: true,
+  fallbackValue: "admin",
+});
+const ADMIN_PASSWORD = getRequiredEnv("ADMIN_PASSWORD", {
+  allowDevFallback: true,
+  fallbackValue: "admin1234",
+});
 
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
@@ -175,6 +184,66 @@ if (!IS_PRODUCTION && (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVA
 
 function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function parseAdminDateInput(value) {
+  const text = normalizeText(value);
+  if (!text || !/^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
+
+  const date = new Date(`${text}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) return "";
+  return text;
+}
+
+function getAdminDateRange(req) {
+  const startDate = parseAdminDateInput(req.query?.startDate);
+  const endDate = parseAdminDateInput(req.query?.endDate);
+
+  if (startDate && endDate && startDate > endDate) {
+    return {
+      startDate: endDate,
+      endDate: startDate,
+    };
+  }
+
+  return {
+    startDate,
+    endDate,
+  };
+}
+
+function buildDateConditions(columnName, range) {
+  const conditions = [];
+  const params = [];
+
+  if (range.startDate) {
+    conditions.push(`${columnName} >= ?::date`);
+    params.push(range.startDate);
+  }
+
+  if (range.endDate) {
+    conditions.push(`${columnName} < (?::date + INTERVAL '1 day')`);
+    params.push(range.endDate);
+  }
+
+  return { conditions, params };
+}
+
+function buildWhereClause(conditions = []) {
+  return conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+}
+
+function toCsvCell(value) {
+  const text = value == null ? "" : String(value);
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function toCsv(headers, rows) {
+  const headerLine = headers.map((header) => toCsvCell(header.label)).join(",");
+  const bodyLines = rows.map((row) =>
+    headers.map((header) => toCsvCell(row[header.key])).join(",")
+  );
+  return [headerLine, ...bodyLines].join("\n");
 }
 
 function toNumber(value) {
@@ -315,6 +384,16 @@ function createSession(userId) {
   return `${payload}.${signValue(payload)}`;
 }
 
+function createAdminSession(username) {
+  const session = {
+    username,
+    role: "admin",
+    expiresAt: Date.now() + SESSION_TTL_MS,
+  };
+  const payload = Buffer.from(JSON.stringify(session)).toString("base64url");
+  return `${payload}.${signValue(payload)}`;
+}
+
 function verifySessionCookie(cookieValue) {
   if (!cookieValue) return null;
 
@@ -335,9 +414,27 @@ function verifySessionCookie(cookieValue) {
   }
 }
 
-function setSessionCookie(res, signedSession) {
+function verifyAdminSessionCookie(cookieValue) {
+  if (!cookieValue) return null;
+
+  const [payload, signature] = cookieValue.split(".");
+  if (!payload || !signature) return null;
+  if (signValue(payload) !== signature) return null;
+
+  try {
+    const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (!session?.username || !session?.expiresAt || session?.role !== "admin") return null;
+    if (session.username !== ADMIN_USERNAME) return null;
+    if (session.expiresAt < Date.now()) return null;
+    return session;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function setCookie(res, cookieName, signedSession) {
   const cookieParts = [
-    `${SESSION_COOKIE_NAME}=${encodeURIComponent(signedSession)}`,
+    `${cookieName}=${encodeURIComponent(signedSession)}`,
     "Path=/",
     "HttpOnly",
     `SameSite=${SESSION_COOKIE_SAME_SITE}`,
@@ -351,9 +448,13 @@ function setSessionCookie(res, signedSession) {
   res.setHeader("Set-Cookie", cookieParts.join("; "));
 }
 
-function clearSessionCookie(res) {
+function setSessionCookie(res, signedSession) {
+  setCookie(res, SESSION_COOKIE_NAME, signedSession);
+}
+
+function clearCookie(res, cookieName) {
   const cookieParts = [
-    `${SESSION_COOKIE_NAME}=`,
+    `${cookieName}=`,
     "Path=/",
     "HttpOnly",
     `SameSite=${SESSION_COOKIE_SAME_SITE}`,
@@ -365,6 +466,18 @@ function clearSessionCookie(res) {
   }
 
   res.setHeader("Set-Cookie", cookieParts.join("; "));
+}
+
+function clearSessionCookie(res) {
+  clearCookie(res, SESSION_COOKIE_NAME);
+}
+
+function setAdminSessionCookie(res, signedSession) {
+  setCookie(res, ADMIN_SESSION_COOKIE_NAME, signedSession);
+}
+
+function clearAdminSessionCookie(res) {
+  clearCookie(res, ADMIN_SESSION_COOKIE_NAME);
 }
 
 function getSafeUser(user) {
@@ -488,6 +601,27 @@ async function requireAuth(req, res, next) {
   } catch (error) {
     console.error("Auth middleware error:", error);
     res.status(500).json({ error: "ตรวจสอบสิทธิ์ไม่สำเร็จ" });
+  }
+}
+
+function requireAdminAuth(req, res, next) {
+  try {
+    const cookies = parseCookies(req.headers.cookie);
+    const session = verifyAdminSessionCookie(cookies[ADMIN_SESSION_COOKIE_NAME]);
+
+    if (!session) {
+      clearAdminSessionCookie(res);
+      return res.status(401).json({ error: "กรุณาเข้าสู่ระบบแอดมินก่อน" });
+    }
+
+    req.adminUser = {
+      username: session.username,
+      role: session.role,
+    };
+    next();
+  } catch (error) {
+    console.error("Admin auth middleware error:", error);
+    return res.status(500).json({ error: "ตรวจสอบสิทธิ์แอดมินไม่สำเร็จ" });
   }
 }
 
@@ -699,6 +833,16 @@ const POPULAR_QUESTION_EXCLUDED_TEXTS = [
   ...new Set([...INTENT_RULES.map((rule) => rule.label), DEFAULT_INTENT_RULE.label]),
 ];
 
+const INTENT_DISPLAY_LABELS = {
+  food: "อาหาร",
+  exercise: "ออกกำลังกาย",
+  glucose: "คุมน้ำตาล",
+  symptom: "อาการผิดปกติ",
+  medicine: "ยาและการรักษา",
+  report: "ความรู้เรื่องโรค",
+  general: "คำถามทั่วไป",
+};
+
 function normalizePopularQuestionCategory(rawCategory) {
   const category = normalizeText(rawCategory).toLowerCase();
 
@@ -710,17 +854,39 @@ function normalizePopularQuestionCategory(rawCategory) {
   return "report";
 }
 
+function getIntentDisplayLabel(intentKey) {
+  return INTENT_DISPLAY_LABELS[intentKey] || "คำถามทั่วไป";
+}
+
 async function recordQuestionStat(message, intent) {
   const questionText = normalizeText(message);
   if (!questionText) return;
 
   await db.run(
-    `INSERT INTO question_stats (question_text, intent_key, count)
-     VALUES (?, ?, 1)
+    `INSERT INTO question_stats (question_text, intent_key, count, updated_at)
+     VALUES (?, ?, 1, NOW())
      ON CONFLICT(question_text) DO UPDATE
      SET count = question_stats.count + 1,
-         intent_key = EXCLUDED.intent_key`,
+         intent_key = EXCLUDED.intent_key,
+         updated_at = NOW()`,
     [questionText, intent?.key || "general"]
+  );
+}
+
+async function recordChatLog({ userId, message, intentKey, responseModel, usedFallback }) {
+  const questionText = normalizeText(message);
+  if (!questionText) return;
+
+  await db.run(
+    `INSERT INTO ai_chat_logs (user_id, question_text, intent_key, response_model, used_fallback)
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      userId || null,
+      questionText,
+      intentKey || "general",
+      normalizeText(responseModel || ""),
+      usedFallback === true,
+    ]
   );
 }
 
@@ -917,6 +1083,39 @@ app.post("/api/logout", (req, res) => {
   res.json({ status: "success" });
 });
 
+app.post("/api/admin/login", async (req, res) => {
+  const username = normalizeText(req.body?.username);
+  const password = typeof req.body?.password === "string" ? req.body.password : "";
+
+  try {
+    if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+      return res.status(401).json({ error: "ชื่อผู้ใช้หรือรหัสผ่านแอดมินไม่ถูกต้อง" });
+    }
+
+    const signedSession = createAdminSession(username);
+    setAdminSessionCookie(res, signedSession);
+    return res.json({
+      status: "success",
+      admin: {
+        username,
+        role: "admin",
+      },
+    });
+  } catch (error) {
+    console.error("Admin login error:", error);
+    return res.status(500).json({ error: "เข้าสู่ระบบแอดมินไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/admin/logout", (_req, res) => {
+  clearAdminSessionCookie(res);
+  res.json({ status: "success" });
+});
+
+app.get("/api/admin/session", requireAdminAuth, (req, res) => {
+  res.json({ status: "success", admin: req.adminUser });
+});
+
 app.get("/api/session", requireAuth, async (req, res) => {
   res.json({ status: "success", user: req.authUser });
 });
@@ -1086,15 +1285,36 @@ app.post("/api/chat", requireAuth, async (req, res) => {
       const cleanedText = normalizeText(text).replace(/\n{3,}/g, "\n\n");
 
       if (!cleanedText) {
+        await recordChatLog({
+          userId: req.authUser.id,
+          message,
+          intentKey: intent?.key,
+          responseModel: "fallback",
+          usedFallback: true,
+        });
         return res.json({
           text: buildIntentFallbackResponse({ intent, lastGlucose }),
           model: "fallback",
         });
       }
 
+      await recordChatLog({
+        userId: req.authUser.id,
+        message,
+        intentKey: intent?.key,
+        responseModel: model,
+        usedFallback: false,
+      });
       return res.json({ text: cleanedText, model });
     } catch (error) {
       console.error("Chat error:", error);
+      await recordChatLog({
+        userId: req.authUser.id,
+        message,
+        intentKey: intent?.key,
+        responseModel: "fallback",
+        usedFallback: true,
+      });
       return res.json({
         text: buildIntentFallbackResponse({ intent, lastGlucose }),
         model: "fallback",
@@ -1163,6 +1383,7 @@ app.post("/api/glucose", requireAuth, async (req, res) => {
   }
 });
 
+/* Legacy duplicate routes kept for reference but disabled to avoid overlapping handlers.
 app.get("/api/reminders", requireAuth, async (req, res) => {
   try {
     const reminders = await getMealReminders(req.authUser.id);
@@ -1404,8 +1625,321 @@ app.post("/api/glucose", requireAuth, async (req, res) => {
     return res.status(500).json({ error: "บันทึกค่าน้ำตาลไม่สำเร็จ" });
   }
 });
+*/
 
-app.get("/api/admin/stats", async (_req, res) => {
+app.get("/api/admin/health", requireAdminAuth, async (_req, res) => {
+  try {
+    const dbHealth = await db.get("SELECT NOW() AS current_time");
+    res.json({
+      status: "ok",
+      services: {
+        backend: true,
+        database: Boolean(dbHealth?.current_time),
+        aiConfigured: Boolean(process.env.GEMINI_API_KEY),
+        pushConfigured: Boolean(VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY),
+        adminConfigured: Boolean(ADMIN_USERNAME && ADMIN_PASSWORD),
+        sessionConfigured: Boolean(SESSION_SECRET),
+      },
+      chatModels: GEMINI_MODELS,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Fetch admin health error:", error);
+    res.status(500).json({ error: "ดึงสถานะระบบไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/overview", requireAdminAuth, async (req, res) => {
+  try {
+    const range = getAdminDateRange(req);
+    const userDateFilter = buildDateConditions("created_at", range);
+    const glucoseDateFilter = buildDateConditions("recorded_at", range);
+    const chatDateFilter = buildDateConditions("created_at", range);
+    const topQuestionConditions = [...chatDateFilter.conditions, "question_text <> ALL(?)"];
+    const topQuestionParams = [...chatDateFilter.params, POPULAR_QUESTION_EXCLUDED_TEXTS];
+
+    const [userSummary, glucoseSummary, questionSummary, reminderSummary, topIntentRow, topQuestionRow, intentStats, topQuestions] =
+      await Promise.all([
+        db.get(
+          `SELECT COUNT(*)::int AS total_users
+           FROM users
+           ${buildWhereClause(userDateFilter.conditions)}`,
+          userDateFilter.params
+        ),
+        db.get(
+          `SELECT COUNT(*)::int AS total_glucose_records
+           FROM glucose_history
+           ${buildWhereClause(glucoseDateFilter.conditions)}`,
+          glucoseDateFilter.params
+        ),
+        db.get(
+          `SELECT
+             COUNT(DISTINCT question_text)::int AS total_question_types,
+             COUNT(*)::int AS total_questions
+           FROM ai_chat_logs
+           ${buildWhereClause(chatDateFilter.conditions)}`,
+          chatDateFilter.params
+        ),
+        db.get("SELECT COUNT(DISTINCT user_id)::int AS active_reminder_users FROM meal_reminders WHERE is_enabled = TRUE"),
+        db.get(
+          `SELECT intent_key, COUNT(*)::int AS total
+           FROM ai_chat_logs
+           ${buildWhereClause(chatDateFilter.conditions)}
+           GROUP BY intent_key
+           ORDER BY total DESC, intent_key ASC
+           LIMIT 1`,
+          chatDateFilter.params
+        ),
+        db.get(
+          `SELECT question_text, intent_key, COUNT(*)::int AS count
+           FROM ai_chat_logs
+           ${buildWhereClause(topQuestionConditions)}
+           GROUP BY question_text, intent_key
+           ORDER BY count DESC, MAX(created_at) DESC, question_text ASC
+           LIMIT 1`,
+          topQuestionParams
+        ),
+        db.all(
+          `SELECT intent_key, COUNT(*)::int AS count
+           FROM ai_chat_logs
+           ${buildWhereClause(chatDateFilter.conditions)}
+           GROUP BY intent_key
+           ORDER BY count DESC, intent_key ASC`,
+          chatDateFilter.params
+        ),
+        db.all(
+          `SELECT question_text, intent_key, COUNT(*)::int AS count, MAX(created_at) AS updated_at
+           FROM ai_chat_logs
+           ${buildWhereClause(topQuestionConditions)}
+           GROUP BY question_text, intent_key
+           ORDER BY count DESC, updated_at DESC, question_text ASC
+           LIMIT 20`,
+          topQuestionParams
+        ),
+      ]);
+
+    const totalQuestions = Number(questionSummary?.total_questions) || 0;
+    const totalQuestionTypes = Number(questionSummary?.total_question_types) || 0;
+
+    res.json({
+      summary: {
+        totalUsers: Number(userSummary?.total_users) || 0,
+        totalGlucoseRecords: Number(glucoseSummary?.total_glucose_records) || 0,
+        totalQuestions,
+        totalQuestionTypes,
+        activeReminderUsers: Number(reminderSummary?.active_reminder_users) || 0,
+        averageQuestionsPerType: totalQuestionTypes ? Math.round(totalQuestions / totalQuestionTypes) : 0,
+        topCategory: topIntentRow
+          ? {
+              intentKey: topIntentRow.intent_key,
+              label: getIntentDisplayLabel(topIntentRow.intent_key),
+              count: Number(topIntentRow.total) || 0,
+            }
+          : null,
+        topQuestion: topQuestionRow
+          ? {
+              questionText: topQuestionRow.question_text,
+              intentKey: topQuestionRow.intent_key,
+              label: getIntentDisplayLabel(topQuestionRow.intent_key),
+              count: Number(topQuestionRow.count) || 0,
+            }
+          : null,
+      },
+      intentStats: intentStats.map((item) => ({
+        intentKey: item.intent_key,
+        label: getIntentDisplayLabel(item.intent_key),
+        count: Number(item.count) || 0,
+      })),
+      topQuestions: topQuestions.map((item) => ({
+        questionText: item.question_text,
+        intentKey: item.intent_key,
+        label: getIntentDisplayLabel(item.intent_key),
+        count: Number(item.count) || 0,
+        updatedAt: item.updated_at,
+      })),
+      range,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Fetch admin overview error:", error);
+    res.status(500).json({ error: "ดึงภาพรวมแอดมินไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/quality", requireAdminAuth, async (req, res) => {
+  try {
+    const range = getAdminDateRange(req);
+    const chatDateFilter = buildDateConditions("created_at", range);
+    const fallbackConditions = [...chatDateFilter.conditions, "used_fallback = TRUE"];
+
+    const [summaryRow, fallbackQuestions, recentFallbacks, modelStats] = await Promise.all([
+      db.get(
+        `SELECT
+           COUNT(*)::int AS total_chats,
+           COALESCE(SUM(CASE WHEN used_fallback THEN 1 ELSE 0 END), 0)::int AS fallback_count
+         FROM ai_chat_logs
+         ${buildWhereClause(chatDateFilter.conditions)}`,
+        chatDateFilter.params
+      ),
+      db.all(
+        `SELECT question_text, intent_key, COUNT(*)::int AS count
+         FROM ai_chat_logs
+         ${buildWhereClause(fallbackConditions)}
+         GROUP BY question_text, intent_key
+         ORDER BY count DESC, question_text ASC
+         LIMIT 12`,
+        chatDateFilter.params
+      ),
+      db.all(
+        `SELECT question_text, intent_key, response_model, created_at
+         FROM ai_chat_logs
+         ${buildWhereClause(fallbackConditions)}
+         ORDER BY created_at DESC
+         LIMIT 12`,
+        chatDateFilter.params
+      ),
+      db.all(
+        `SELECT response_model, COUNT(*)::int AS count
+         FROM ai_chat_logs
+         ${buildWhereClause(chatDateFilter.conditions)}
+         GROUP BY response_model
+         ORDER BY count DESC, response_model ASC`,
+        chatDateFilter.params
+      ),
+    ]);
+
+    const totalChats = Number(summaryRow?.total_chats) || 0;
+    const fallbackCount = Number(summaryRow?.fallback_count) || 0;
+
+    res.json({
+      summary: {
+        totalChats,
+        fallbackCount,
+        successCount: Math.max(totalChats - fallbackCount, 0),
+        fallbackRate: totalChats ? Number(((fallbackCount / totalChats) * 100).toFixed(1)) : 0,
+      },
+      fallbackQuestions: fallbackQuestions.map((item) => ({
+        questionText: item.question_text,
+        intentKey: item.intent_key,
+        label: getIntentDisplayLabel(item.intent_key),
+        count: Number(item.count) || 0,
+      })),
+      recentFallbacks: recentFallbacks.map((item) => ({
+        questionText: item.question_text,
+        intentKey: item.intent_key,
+        label: getIntentDisplayLabel(item.intent_key),
+        responseModel: item.response_model || "fallback",
+        createdAt: item.created_at,
+      })),
+      modelStats: modelStats.map((item) => ({
+        model: item.response_model || "unknown",
+        count: Number(item.count) || 0,
+      })),
+      range,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error("Fetch admin quality error:", error);
+    res.status(500).json({ error: "ดึงข้อมูลคุณภาพ AI ไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/export/questions.csv", requireAdminAuth, async (req, res) => {
+  try {
+    const range = getAdminDateRange(req);
+    const chatDateFilter = buildDateConditions("created_at", range);
+    const questionConditions = [...chatDateFilter.conditions, "question_text <> ALL(?)"];
+    const rows = await db.all(
+      `SELECT
+         question_text,
+         intent_key,
+         COUNT(*)::int AS count,
+         MAX(created_at) AS last_seen_at
+       FROM ai_chat_logs
+       ${buildWhereClause(questionConditions)}
+       GROUP BY question_text, intent_key
+       ORDER BY count DESC, last_seen_at DESC, question_text ASC`,
+      [...chatDateFilter.params, POPULAR_QUESTION_EXCLUDED_TEXTS]
+    );
+
+    const csv = toCsv(
+      [
+        { key: "questionText", label: "question_text" },
+        { key: "intentKey", label: "intent_key" },
+        { key: "intentLabel", label: "intent_label" },
+        { key: "count", label: "count" },
+        { key: "lastSeenAt", label: "last_seen_at" },
+        { key: "startDate", label: "filter_start_date" },
+        { key: "endDate", label: "filter_end_date" },
+      ],
+      rows.map((item) => ({
+        questionText: item.question_text,
+        intentKey: item.intent_key,
+        intentLabel: getIntentDisplayLabel(item.intent_key),
+        count: Number(item.count) || 0,
+        lastSeenAt: item.last_seen_at,
+        startDate: range.startDate || "",
+        endDate: range.endDate || "",
+      }))
+    );
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="admin-questions.csv"');
+    res.send(`\uFEFF${csv}`);
+  } catch (error) {
+    console.error("Export admin questions error:", error);
+    res.status(500).json({ error: "ส่งออกข้อมูลคำถามไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/export/fallbacks.csv", requireAdminAuth, async (req, res) => {
+  try {
+    const range = getAdminDateRange(req);
+    const chatDateFilter = buildDateConditions("created_at", range);
+    const fallbackConditions = [...chatDateFilter.conditions, "used_fallback = TRUE"];
+    const rows = await db.all(
+      `SELECT
+         question_text,
+         intent_key,
+         response_model,
+         created_at
+       FROM ai_chat_logs
+       ${buildWhereClause(fallbackConditions)}
+       ORDER BY created_at DESC`,
+      chatDateFilter.params
+    );
+
+    const csv = toCsv(
+      [
+        { key: "questionText", label: "question_text" },
+        { key: "intentKey", label: "intent_key" },
+        { key: "intentLabel", label: "intent_label" },
+        { key: "responseModel", label: "response_model" },
+        { key: "createdAt", label: "created_at" },
+        { key: "startDate", label: "filter_start_date" },
+        { key: "endDate", label: "filter_end_date" },
+      ],
+      rows.map((item) => ({
+        questionText: item.question_text,
+        intentKey: item.intent_key,
+        intentLabel: getIntentDisplayLabel(item.intent_key),
+        responseModel: item.response_model || "fallback",
+        createdAt: item.created_at,
+        startDate: range.startDate || "",
+        endDate: range.endDate || "",
+      }))
+    );
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="admin-fallbacks.csv"');
+    res.send(`\uFEFF${csv}`);
+  } catch (error) {
+    console.error("Export admin fallbacks error:", error);
+    res.status(500).json({ error: "ส่งออกข้อมูล fallback ไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/stats", requireAdminAuth, async (_req, res) => {
   try {
     const stats = await db.all("SELECT * FROM question_stats ORDER BY count DESC");
     res.json(stats);

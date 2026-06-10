@@ -11,13 +11,34 @@ const getTopicKey = (category) => {
   return CATEGORY_LABEL_TO_KEY[category] || 'report';
 };
 
+const isFriendlyQuestion = (question) => {
+  const text = String(question || '').trim();
+  if (!text) return false;
+  if (text.length < 8 || text.length > 120) return false;
+  if (!/[ก-๙]/.test(text)) return false;
+
+  const blockedPhrases = [
+    'expressing confusion',
+    'general',
+    'report',
+    'food',
+    'exercise',
+    'glucose',
+    'medicine',
+    'symptom',
+  ];
+
+  const normalized = text.toLowerCase();
+  return !blockedPhrases.some((phrase) => normalized.includes(phrase));
+};
+
 const mergeQuestions = (popularQuestions, fallbackQuestions) => {
   const merged = [];
   const seen = new Set();
 
   [...popularQuestions, ...fallbackQuestions].forEach((question) => {
     const normalized = String(question || '').trim();
-    if (!normalized || seen.has(normalized)) return;
+    if (!isFriendlyQuestion(normalized) || seen.has(normalized)) return;
     seen.add(normalized);
     merged.push(normalized);
   });
@@ -54,7 +75,7 @@ export default function CategoryDetailPage({ category, onBack, onSelectChat }) {
         const nextQuestions = Array.isArray(payload?.questions)
           ? payload.questions
               .map((item) => String(item?.questionText || item?.question_text || '').trim())
-              .filter(Boolean)
+              .filter(isFriendlyQuestion)
           : [];
 
         if (!isCancelled) {

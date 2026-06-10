@@ -1,13 +1,88 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, MessageCircle, Sparkles } from 'lucide-react';
+import { API_URL } from '../config';
 import { CATEGORY_LABEL_TO_KEY, CATEGORY_TOPICS } from '../data/aiTopics';
 
-const getTopicKey = (category) => CATEGORY_LABEL_TO_KEY[category] || 'report';
+const getTopicKey = (category) => {
+  if (category && CATEGORY_TOPICS[category]) {
+    return category;
+  }
+
+  return CATEGORY_LABEL_TO_KEY[category] || 'report';
+};
+
+const mergeQuestions = (popularQuestions, fallbackQuestions) => {
+  const merged = [];
+  const seen = new Set();
+
+  [...popularQuestions, ...fallbackQuestions].forEach((question) => {
+    const normalized = String(question || '').trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    merged.push(normalized);
+  });
+
+  return merged.slice(0, 5);
+};
 
 export default function CategoryDetailPage({ category, onBack, onSelectChat }) {
   const topicKey = getTopicKey(category);
   const data = CATEGORY_TOPICS[topicKey] || CATEGORY_TOPICS.report;
   const Icon = data.icon;
+  const [popularQuestions, setPopularQuestions] = useState([]);
+  const [isLoadingPopular, setIsLoadingPopular] = useState(true);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const fetchPopularQuestions = async () => {
+      setIsLoadingPopular(true);
+
+      try {
+        const response = await fetch(
+          `${API_URL}/questions/popular?category=${encodeURIComponent(topicKey)}&limit=5`,
+          {
+            credentials: 'include',
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch popular questions: ${response.status}`);
+        }
+
+        const payload = await response.json();
+        const nextQuestions = Array.isArray(payload?.questions)
+          ? payload.questions
+              .map((item) => String(item?.questionText || item?.question_text || '').trim())
+              .filter(Boolean)
+          : [];
+
+        if (!isCancelled) {
+          setPopularQuestions(nextQuestions);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          console.warn('Popular question fetch failed:', error);
+          setPopularQuestions([]);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingPopular(false);
+        }
+      }
+    };
+
+    fetchPopularQuestions();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [topicKey]);
+
+  const questions = useMemo(
+    () => mergeQuestions(popularQuestions, data.questions || []),
+    [data.questions, popularQuestions]
+  );
 
   return (
     <div className="app-page app-page-transition flex flex-col bg-slate-50 sm:h-full">
@@ -35,16 +110,22 @@ export default function CategoryDetailPage({ category, onBack, onSelectChat }) {
         <div className="rounded-[1.5rem] border border-white bg-white/95 p-4 shadow-sm">
           <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-slate-400">
             <Sparkles size={13} />
-            คำถามตัวอย่าง
+            คำถามยอดนิยมในหมวดนี้
           </div>
           <p className="mt-2 text-sm leading-6 text-slate-500">
-            แตะคำถามที่ต้องการเพื่อคุยกับหมอ AI ได้ทันที ระบบจะพาไปหน้าแชตพร้อมข้อความให้เลย
+            ระบบจะเรียงจากคำถามที่ผู้ใช้ถามบ่อยที่สุดในหมวดนี้ และจะเปลี่ยนอัตโนมัติเมื่อมีคำถามอื่นถูกถามมากขึ้น
           </p>
         </div>
 
-        {data.questions.map((question, index) => (
+        {isLoadingPopular ? (
+          <div className="rounded-[1.5rem] border border-slate-100 bg-white p-5 text-sm font-semibold text-slate-500 shadow-sm">
+            กำลังโหลดคำถามยอดนิยม...
+          </div>
+        ) : null}
+
+        {questions.map((question, index) => (
           <button
-            key={question}
+            key={`${topicKey}-${question}`}
             onClick={() => onSelectChat(question)}
             className="touch-target animate-fade-up w-full rounded-[1.5rem] border border-slate-100 bg-white p-5 text-left shadow-sm transition hover:border-blue-200 hover:shadow-md active:scale-[0.99]"
             style={{ animationDelay: `${index * 50}ms` }}

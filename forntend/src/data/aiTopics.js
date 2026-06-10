@@ -76,6 +76,11 @@ export const CATEGORY_TOPICS = {
 };
 
 export const CATEGORY_LABEL_TO_KEY = {
+  food: 'food',
+  exercise: 'exercise',
+  glucose: 'glucose',
+  report: 'report',
+  knowledge: 'report',
   อาหาร: 'food',
   ออกกำลังกาย: 'exercise',
   คุมน้ำตาล: 'glucose',

@@ -688,6 +688,42 @@ function normalizeIntentLabel(rawIntent, originalMessage = "") {
   return findIntentRule(rawIntent, originalMessage).label;
 }
 
+const POPULAR_QUESTION_INTENT_GROUPS = {
+  food: ["food"],
+  exercise: ["exercise"],
+  glucose: ["glucose", "symptom"],
+  report: ["medicine", "report", "general"],
+};
+
+const POPULAR_QUESTION_EXCLUDED_TEXTS = [
+  ...new Set([...INTENT_RULES.map((rule) => rule.label), DEFAULT_INTENT_RULE.label]),
+];
+
+function normalizePopularQuestionCategory(rawCategory) {
+  const category = normalizeText(rawCategory).toLowerCase();
+
+  if (category === "knowledge") return "report";
+  if (Object.prototype.hasOwnProperty.call(POPULAR_QUESTION_INTENT_GROUPS, category)) {
+    return category;
+  }
+
+  return "report";
+}
+
+async function recordQuestionStat(message, intent) {
+  const questionText = normalizeText(message);
+  if (!questionText) return;
+
+  await db.run(
+    `INSERT INTO question_stats (question_text, intent_key, count)
+     VALUES (?, ?, 1)
+     ON CONFLICT(question_text) DO UPDATE
+     SET count = question_stats.count + 1,
+         intent_key = EXCLUDED.intent_key`,
+    [questionText, intent?.key || "general"]
+  );
+}
+
 function validateProfilePayload(payload) {
   return (
     validateName(payload?.name) ||
@@ -1033,13 +1069,7 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     const intent = findIntentRule("", message);
 
     try {
-      await db.run(
-        `INSERT INTO question_stats (question_text, count)
-         VALUES (?, 1)
-         ON CONFLICT(question_text) DO UPDATE
-         SET count = question_stats.count + 1`,
-        [intent.label]
-      );
+      await recordQuestionStat(message, intent);
     } catch (error) {
       console.warn("Intent recording error:", error?.message || error);
     }
@@ -1281,13 +1311,7 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     const intent = findIntentRule("", message);
 
     try {
-      await db.run(
-        `INSERT INTO question_stats (question_text, count)
-         VALUES (?, 1)
-         ON CONFLICT(question_text) DO UPDATE
-         SET count = question_stats.count + 1`,
-        [intent.label]
-      );
+      await recordQuestionStat(message, intent);
     } catch (error) {
       console.warn("Intent recording error:", error?.message || error);
     }
@@ -1388,6 +1412,33 @@ app.get("/api/admin/stats", async (_req, res) => {
   } catch (error) {
     console.error("Fetch admin stats error:", error);
     res.status(500).json({ error: "ดึงข้อมูลสถิติล้มเหลว" });
+  }
+});
+
+app.get("/api/questions/popular", requireAuth, async (req, res) => {
+  try {
+    const category = normalizePopularQuestionCategory(req.query?.category);
+    const limitValue = Number.parseInt(String(req.query?.limit || "5"), 10);
+    const limit = Number.isNaN(limitValue) ? 5 : Math.min(Math.max(limitValue, 1), 10);
+    const intentKeys = POPULAR_QUESTION_INTENT_GROUPS[category] || POPULAR_QUESTION_INTENT_GROUPS.report;
+
+    const questions = await db.all(
+      `SELECT question_text, intent_key, count
+       FROM question_stats
+       WHERE intent_key = ANY(?)
+         AND question_text <> ALL(?)
+       ORDER BY count DESC, id DESC
+       LIMIT ?`,
+      [intentKeys, POPULAR_QUESTION_EXCLUDED_TEXTS, limit]
+    );
+
+    res.json({
+      category,
+      questions,
+    });
+  } catch (error) {
+    console.error("Fetch popular questions error:", error);
+    res.status(500).json({ error: "ดึงคำถามยอดนิยมไม่สำเร็จ" });
   }
 });
 

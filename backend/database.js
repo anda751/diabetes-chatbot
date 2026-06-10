@@ -111,8 +111,14 @@ export async function initDB() {
     CREATE TABLE IF NOT EXISTS question_stats (
       id BIGSERIAL PRIMARY KEY,
       question_text TEXT UNIQUE,
+      intent_key TEXT DEFAULT 'general',
       count INTEGER DEFAULT 1
     )
+  `);
+
+  await db.exec(`
+    ALTER TABLE question_stats
+    ADD COLUMN IF NOT EXISTS intent_key TEXT DEFAULT 'general'
   `);
 
   await db.exec(`

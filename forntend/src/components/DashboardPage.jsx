@@ -43,7 +43,7 @@ const categoryCards = [
     iconClassName: 'bg-blue-500 text-white',
   },
   {
-    key: 'knowledge',
+    key: 'report',
     title: 'ความรู้เรื่องโรค',
     description: 'เรียนรู้การสังเกตอาการและดูแลตัวเองอย่างเหมาะสม',
     icon: BookOpen,

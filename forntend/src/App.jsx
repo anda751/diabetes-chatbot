@@ -103,10 +103,33 @@ function loadMealRemindersFromStorage() {
     if (!saved) return DEFAULT_MEAL_REMINDERS;
 
     const parsed = JSON.parse(saved);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_MEAL_REMINDERS;
+    return mergeWithDefaultMealReminders(parsed);
   } catch {
     return DEFAULT_MEAL_REMINDERS;
   }
+}
+
+function mergeWithDefaultMealReminders(reminders) {
+  const reminderList = Array.isArray(reminders) ? reminders : [];
+
+  return DEFAULT_MEAL_REMINDERS.map((defaultReminder) => {
+    const matchedReminder = reminderList.find(
+      (item) => String(item?.id || '') === String(defaultReminder.id)
+    );
+
+    return {
+      ...defaultReminder,
+      ...matchedReminder,
+      id: defaultReminder.id,
+      label: matchedReminder?.label || defaultReminder.label,
+      time: matchedReminder?.time || defaultReminder.time,
+      isEnabled: matchedReminder?.isEnabled !== false,
+      completedSlotKey:
+        typeof matchedReminder?.completedSlotKey === 'string'
+          ? matchedReminder.completedSlotKey
+          : defaultReminder.completedSlotKey,
+    };
+  });
 }
 
 function getTodayKey(date = new Date()) {
@@ -493,14 +516,14 @@ export default function App() {
   const syncRemindersToBackend = useCallback(async (nextReminders) => {
     if (!userData) return;
 
-    const sanitizedReminders = nextReminders.map((item, index) => ({
+    const sanitizedReminders = mergeWithDefaultMealReminders(nextReminders).map((item, index) => ({
       id: String(item.id || `reminder-${index + 1}`),
       label: String(item.label || '').trim(),
       time: String(item.time || '').trim(),
       isEnabled: item.isEnabled !== false,
     }));
 
-    setReminders(nextReminders);
+    setReminders(mergeWithDefaultMealReminders(nextReminders));
     try {
       const response = await fetch(`${API_URL}/reminders`, {
         method: 'PUT',
@@ -516,7 +539,7 @@ export default function App() {
 
       const syncedReminders = Array.isArray(data.reminders) ? data.reminders : sanitizedReminders;
       setReminders((prev) =>
-        syncedReminders.map((item) => {
+        mergeWithDefaultMealReminders(syncedReminders).map((item) => {
           const previous = prev.find((entry) => String(entry.id) === String(item.id));
           return {
             ...item,
@@ -838,7 +861,7 @@ export default function App() {
         const incomingReminders =
           data.reminders.length > 0 ? data.reminders : loadMealRemindersFromStorage();
         setReminders((prev) =>
-          incomingReminders.map((item) => {
+          mergeWithDefaultMealReminders(incomingReminders).map((item) => {
             const previous = prev.find((entry) => String(entry.id) === String(item.id));
             return {
               ...item,

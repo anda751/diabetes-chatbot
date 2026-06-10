@@ -72,8 +72,7 @@ const parseReminderMinutes = (timeValue) => {
 const buildReminderSlotKey = (reminder, date = new Date()) =>
   `${getDayKey(date)}:${reminder.id}:${reminder.time}`;
 
-const normalizeReminder = (reminder, index) => {
-  const fallback = DEFAULT_MEAL_REMINDERS[index] || DEFAULT_MEAL_REMINDERS[0];
+const normalizeReminder = (reminder, fallback) => {
   return {
     id: reminder?.id || fallback.id,
     label: reminder?.label || fallback.label,
@@ -85,10 +84,16 @@ const normalizeReminder = (reminder, index) => {
 
 const loadMealReminders = (mealReminders) => {
   if (!Array.isArray(mealReminders) || mealReminders.length === 0) {
-    return DEFAULT_MEAL_REMINDERS.map((item, index) => normalizeReminder(item, index));
+    return DEFAULT_MEAL_REMINDERS.map((item) => normalizeReminder(item, item));
   }
 
-  return mealReminders.map((item, index) => normalizeReminder(item, index));
+  return DEFAULT_MEAL_REMINDERS.map((defaultReminder) => {
+    const matchedReminder = mealReminders.find(
+      (item) => String(item?.id || '') === String(defaultReminder.id)
+    );
+
+    return normalizeReminder(matchedReminder || defaultReminder, defaultReminder);
+  });
 };
 
 const formatThaiDateTime = (value) => {

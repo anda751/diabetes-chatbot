@@ -111,8 +111,7 @@ function loadMealRemindersFromStorage() {
 
 function mergeWithDefaultMealReminders(reminders) {
   const reminderList = Array.isArray(reminders) ? reminders : [];
-
-  return DEFAULT_MEAL_REMINDERS.map((defaultReminder) => {
+  const mergedDefaults = DEFAULT_MEAL_REMINDERS.map((defaultReminder) => {
     const matchedReminder = reminderList.find(
       (item) => String(item?.id || '') === String(defaultReminder.id)
     );
@@ -130,6 +129,18 @@ function mergeWithDefaultMealReminders(reminders) {
           : defaultReminder.completedSlotKey,
     };
   });
+
+  const extraReminders = reminderList
+    .filter((item) => !DEFAULT_MEAL_REMINDERS.some((defaultReminder) => String(defaultReminder.id) === String(item?.id)))
+    .map((item, index) => ({
+      id: String(item?.id || `extra-${index + 1}`),
+      label: String(item?.label || `มื้อเพิ่มเติม ${index + 1}`).trim(),
+      time: String(item?.time || '10:00').trim(),
+      isEnabled: item?.isEnabled !== false,
+      completedSlotKey: typeof item?.completedSlotKey === 'string' ? item.completedSlotKey : '',
+    }));
+
+  return [...mergedDefaults, ...extraReminders];
 }
 
 function getTodayKey(date = new Date()) {

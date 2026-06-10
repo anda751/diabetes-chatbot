@@ -87,13 +87,27 @@ const loadMealReminders = (mealReminders) => {
     return DEFAULT_MEAL_REMINDERS.map((item) => normalizeReminder(item, item));
   }
 
-  return DEFAULT_MEAL_REMINDERS.map((defaultReminder) => {
+  const mergedDefaults = DEFAULT_MEAL_REMINDERS.map((defaultReminder) => {
     const matchedReminder = mealReminders.find(
       (item) => String(item?.id || '') === String(defaultReminder.id)
     );
 
     return normalizeReminder(matchedReminder || defaultReminder, defaultReminder);
   });
+
+  const extraReminders = mealReminders
+    .filter((item) => !DEFAULT_MEAL_REMINDERS.some((defaultReminder) => String(defaultReminder.id) === String(item?.id)))
+    .map((item, index) =>
+      normalizeReminder(item, {
+        id: item?.id || `extra-${index + 1}`,
+        label: item?.label || `มื้อเพิ่มเติม ${index + 1}`,
+        time: item?.time || '10:00',
+        isEnabled: item?.isEnabled !== false,
+        completedSlotKey: item?.completedSlotKey || '',
+      })
+    );
+
+  return [...mergedDefaults, ...extraReminders];
 };
 
 const formatThaiDateTime = (value) => {
@@ -240,6 +254,19 @@ export default function DashboardPage({
     }
   };
 
+  const handleAddReminder = () => {
+    const extraCount = reminders.filter((item) => !DEFAULT_MEAL_REMINDERS.some((defaultReminder) => defaultReminder.id === item.id)).length;
+    const nextReminder = {
+      id: `extra-${Date.now()}`,
+      label: `มื้อเพิ่มเติม ${extraCount + 1}`,
+      time: '10:00',
+      isEnabled: true,
+      completedSlotKey: '',
+    };
+
+    updateReminders((previous) => [...previous, nextReminder]);
+  };
+
   const handleReminderChange = (reminderId, field, value) => {
     updateReminders((previous) =>
       previous.map((item) => {
@@ -252,6 +279,10 @@ export default function DashboardPage({
         return nextReminder;
       })
     );
+  };
+
+  const handleRemoveReminder = (reminderId) => {
+    updateReminders((previous) => previous.filter((item) => item.id !== reminderId));
   };
 
   const handleCheckMeal = (reminderId) => {
@@ -461,6 +492,20 @@ export default function DashboardPage({
               </button>
             </div>
 
+            {isSettingReminders ? (
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                <span className="font-semibold">แก้ชื่อมื้อ ปรับเวลา และเพิ่มมื้ออาหารได้ในหน้านี้</span>
+                <button
+                  type="button"
+                  onClick={handleAddReminder}
+                  className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-3 py-2 font-semibold text-white transition hover:bg-emerald-600"
+                >
+                  <Plus size={16} />
+                  เพิ่มมื้ออาหาร
+                </button>
+              </div>
+            ) : null}
+
             {notificationPermission !== 'granted' ? (
               <button
                 type="button"
@@ -478,38 +523,56 @@ export default function DashboardPage({
               {(isSettingReminders ? sortedReminders : visibleReminders).map((reminder) => {
                 const currentSlotKey = buildReminderSlotKey(reminder, now);
                 const isCompleted = reminder.completedSlotKey === currentSlotKey;
+                const isDefaultReminder = DEFAULT_MEAL_REMINDERS.some((item) => item.id === reminder.id);
 
                 return (
                   <div key={reminder.id} className="rounded-[22px] border border-slate-200/80 bg-white px-4 py-4 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-lg font-bold tracking-tight text-slate-900">{reminder.label}</p>
-                        <p className="mt-1 text-sm text-slate-500">แจ้งเตือนเวลา {reminder.time} น.</p>
-                      </div>
-
                       {isSettingReminders ? (
-                        <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
-                          <span>เปิดใช้งาน</span>
-                          <input
-                            type="checkbox"
-                            checked={reminder.isEnabled}
-                            onChange={(event) => handleReminderChange(reminder.id, 'isEnabled', event.target.checked)}
-                            className="h-4 w-4 accent-emerald-500"
-                          />
-                        </label>
+                        <div className="flex w-full flex-col gap-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <label className="text-xs font-semibold text-slate-400">ชื่อมื้ออาหาร</label>
+                              <input
+                                type="text"
+                                value={reminder.label}
+                                onChange={(event) => handleReminderChange(reminder.id, 'label', event.target.value)}
+                                className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-200 px-4 text-base font-semibold text-slate-900 outline-none transition focus:border-emerald-400"
+                                placeholder="เช่น อาหารว่างช่วงบ่าย"
+                              />
+                            </div>
+
+                            <label className="flex items-center gap-2 rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">
+                              <span>เปิดใช้งาน</span>
+                              <input
+                                type="checkbox"
+                                checked={reminder.isEnabled}
+                                onChange={(event) => handleReminderChange(reminder.id, 'isEnabled', event.target.checked)}
+                                className="h-4 w-4 accent-emerald-500"
+                              />
+                            </label>
+                          </div>
+                          <p className="text-sm text-slate-500">ตั้งเวลาเตือนให้ตรงกับมื้อที่ต้องการ แล้วระบบจะรีเซ็ตสถานะตามเวลานี้อัตโนมัติ</p>
+                        </div>
                       ) : (
-                        <span
-                          className={`rounded-full px-3 py-2 text-sm font-semibold ${
-                            isCompleted ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
-                          }`}
-                        >
-                          {isCompleted ? 'รับประทานแล้ว' : 'รอเช็กมื้อนี้'}
-                        </span>
+                        <>
+                          <div>
+                            <p className="text-lg font-bold tracking-tight text-slate-900">{reminder.label}</p>
+                            <p className="mt-1 text-sm text-slate-500">แจ้งเตือนเวลา {reminder.time} น.</p>
+                          </div>
+                          <span
+                            className={`rounded-full px-3 py-2 text-sm font-semibold ${
+                              isCompleted ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                            }`}
+                          >
+                            {isCompleted ? 'รับประทานแล้ว' : 'รอเช็กมื้อนี้'}
+                          </span>
+                        </>
                       )}
                     </div>
 
                     {isSettingReminders ? (
-                      <div className="mt-4 flex items-center gap-3">
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
                         <input
                           type="time"
                           value={reminder.time}
@@ -523,6 +586,15 @@ export default function DashboardPage({
                         >
                           รีเซ็ตสถานะ
                         </button>
+                        {!isDefaultReminder ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveReminder(reminder.id)}
+                            className="rounded-2xl border border-rose-200 px-4 py-3 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50"
+                          >
+                            ลบมื้อนี้
+                          </button>
+                        ) : null}
                       </div>
                     ) : (
                       <button

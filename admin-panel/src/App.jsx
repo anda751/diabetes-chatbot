@@ -48,25 +48,44 @@ function toChartData(intentStats) {
   }));
 }
 
-function formatDateInput(date) {
-  return date.toISOString().slice(0, 10);
+function formatThaiDateOnly(value) {
+  if (!value) return '-';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('th-TH', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 function getDefaultDateRange() {
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setDate(endDate.getDate() - 29);
-
   return {
-    startDate: formatDateInput(startDate),
-    endDate: formatDateInput(endDate),
+    startDate: '',
+    endDate: '',
   };
 }
 
+function normalizeDateRange(dateRange) {
+  const startDate = dateRange?.startDate || '';
+  const endDate = dateRange?.endDate || '';
+
+  if (startDate && !endDate) {
+    return { startDate, endDate: startDate };
+  }
+
+  if (!startDate && endDate) {
+    return { startDate: endDate, endDate };
+  }
+
+  return { startDate, endDate };
+}
+
 function buildAdminQueryString(dateRange) {
+  const normalizedRange = normalizeDateRange(dateRange);
   const params = new URLSearchParams();
-  if (dateRange?.startDate) params.set('startDate', dateRange.startDate);
-  if (dateRange?.endDate) params.set('endDate', dateRange.endDate);
+  if (normalizedRange.startDate) params.set('startDate', normalizedRange.startDate);
+  if (normalizedRange.endDate) params.set('endDate', normalizedRange.endDate);
   const queryString = params.toString();
   return queryString ? `?${queryString}` : '';
 }
@@ -138,11 +157,11 @@ function App() {
     setError('');
 
     try {
-      if (dateRange.startDate && dateRange.endDate && dateRange.startDate > dateRange.endDate) {
+      const normalizedRange = normalizeDateRange(dateRange);
+      if (normalizedRange.startDate && normalizedRange.endDate && normalizedRange.startDate > normalizedRange.endDate) {
         throw new Error('ช่วงวันที่ไม่ถูกต้อง');
       }
-
-      const queryString = buildAdminQueryString(dateRange);
+      const queryString = buildAdminQueryString(normalizedRange);
       const [overviewResponse, healthResponse, qualityResponse] = await Promise.all([
         fetch(`${API_URL}/admin/overview${queryString}`, {
           credentials: 'include',
@@ -259,11 +278,12 @@ function App() {
     setError('');
 
     try {
-      if (dateRange.startDate && dateRange.endDate && dateRange.startDate > dateRange.endDate) {
+      const normalizedRange = normalizeDateRange(dateRange);
+      if (normalizedRange.startDate && normalizedRange.endDate && normalizedRange.startDate > normalizedRange.endDate) {
         throw new Error('ช่วงวันที่ไม่ถูกต้อง');
       }
 
-      const queryString = buildAdminQueryString(dateRange);
+      const queryString = buildAdminQueryString(normalizedRange);
       const exportPath =
         activeView === 'quality' ? '/admin/export/fallbacks.csv' : '/admin/export/questions.csv';
 
@@ -503,6 +523,7 @@ function TopBar({
   onExport,
   exportLabel,
 }) {
+  const normalizedRange = normalizeDateRange(dateRange);
   return (
     <>
       <header className="flex items-start justify-between gap-6">
@@ -540,6 +561,9 @@ function TopBar({
                 }
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-sky-400"
               />
+              <span className="mt-2 block text-xs font-semibold text-slate-400">
+                {dateRange.startDate ? formatThaiDateOnly(dateRange.startDate) : 'ยังไม่ได้เลือก'}
+              </span>
             </label>
 
             <label className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -557,6 +581,9 @@ function TopBar({
                 }
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-sky-400"
               />
+              <span className="mt-2 block text-xs font-semibold text-slate-400">
+                {dateRange.endDate ? formatThaiDateOnly(dateRange.endDate) : 'ถ้าเว้นว่าง จะใช้วันเดียวกับ Start'}
+              </span>
             </label>
 
             <button
@@ -584,8 +611,8 @@ function TopBar({
         <span className="rounded-2xl bg-white px-3 py-1.5 font-semibold text-slate-500 shadow-sm">
           อัปเดตล่าสุด: {formatThaiDateTime(updatedAt)}
         </span>
-        <span className="rounded-2xl bg-white px-3 py-1.5 font-semibold text-slate-500 shadow-sm">
-          ช่วงข้อมูล: {dateRange.startDate || '-'} ถึง {dateRange.endDate || '-'}
+        <span className="rounded-2xl bg-emerald-50 px-3 py-1.5 font-semibold text-emerald-700 shadow-sm">
+          กรองจริง: {formatThaiDateOnly(normalizedRange.startDate)} ถึง {formatThaiDateOnly(normalizedRange.endDate)}
         </span>
         {loading ? (
           <span className="rounded-2xl bg-amber-50 px-3 py-1.5 font-semibold text-amber-700">
@@ -866,7 +893,11 @@ function PopularQuestionList({ questions }) {
                 <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600 shadow-sm">
                   {item.label}
                 </span>
-                <span className="text-xs text-slate-400">{formatThaiDateTime(item.updatedAt)}</span>
+                {item.updatedAt ? (
+                  <span className="text-xs text-slate-400">{formatThaiDateTime(item.updatedAt)}</span>
+                ) : (
+                  <span className="text-xs text-slate-300">ยังไม่มีเวลา log จริง</span>
+                )}
               </div>
               <p className="mt-2 text-sm font-bold leading-6 text-slate-800">{item.questionText}</p>
             </div>

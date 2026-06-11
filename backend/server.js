@@ -10,6 +10,13 @@ import {
 import { promisify } from "node:util";
 import { GoogleGenAI } from "@google/genai";
 import webpush from "web-push";
+import {
+  exportAdminFallbacksCsv,
+  exportAdminQuestionsCsv,
+  getAdminOverview,
+  getAdminStats,
+  getAdminQuality,
+} from "./adminAnalytics.js";
 import { initDB } from "./database.js";
 
 dotenv.config();
@@ -210,40 +217,6 @@ function getAdminDateRange(req) {
     startDate,
     endDate,
   };
-}
-
-function buildDateConditions(columnName, range) {
-  const conditions = [];
-  const params = [];
-
-  if (range.startDate) {
-    conditions.push(`${columnName} >= ?::date`);
-    params.push(range.startDate);
-  }
-
-  if (range.endDate) {
-    conditions.push(`${columnName} < (?::date + INTERVAL '1 day')`);
-    params.push(range.endDate);
-  }
-
-  return { conditions, params };
-}
-
-function buildWhereClause(conditions = []) {
-  return conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-}
-
-function toCsvCell(value) {
-  const text = value == null ? "" : String(value);
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
-function toCsv(headers, rows) {
-  const headerLine = headers.map((header) => toCsvCell(header.label)).join(",");
-  const bodyLines = rows.map((row) =>
-    headers.map((header) => toCsvCell(row[header.key])).join(",")
-  );
-  return [headerLine, ...bodyLines].join("\n");
 }
 
 function toNumber(value) {
@@ -732,7 +705,7 @@ const INTENT_RULES = [
   {
     key: "greeting",
     label: "ทักทาย",
-    keywords: ["สวัสดี", "hello", "hi", "ทักทาย", "หวัดดี"],
+    keywords: ["สวัสดี", "hello", "hi", "hey", "ทักทาย", "หวัดดี"],
     promptHint: "ถ้าเป็นการทักทาย ให้ตอบสั้น อบอุ่น และชวนถามต่อได้เลย",
     fallback:
       "สวัสดีค่ะ วันนี้อยากให้หมอ AI ช่วยดูเรื่องอาหาร ค่าน้ำตาล อาการ หรือยา ก็บอกได้เลยนะคะ",
@@ -740,7 +713,32 @@ const INTENT_RULES = [
   {
     key: "food",
     label: "แนะนำอาหาร",
-    keywords: ["อาหาร", "กิน", "เมนู", "มื้อ", "ผลไม้", "ข้าว", "หวาน", "เครื่องดื่ม"],
+    keywords: [
+      "อาหาร",
+      "กินอะไร",
+      "ควรกิน",
+      "กินได้ไหม",
+      "เมนู",
+      "มื้อ",
+      "ผลไม้",
+      "ข้าว",
+      "หวาน",
+      "เครื่องดื่ม",
+      "ของกิน",
+      "ของว่าง",
+      "อาหารเช้า",
+      "อาหารกลางวัน",
+      "อาหารเย็น",
+      "breakfast",
+      "lunch",
+      "dinner",
+      "meal",
+      "food",
+      "snack",
+      "fruit",
+      "rice",
+      "drink",
+    ],
     promptHint: "ถ้าเป็นเรื่องอาหาร ให้เน้นเมนูที่เหมาะ ปริมาณที่ควรระวัง และตัวอย่างที่ทำตามได้จริง",
     fallback:
       "ถ้าอยากคุมเบาหวานให้ดี ลองเน้นผัก โปรตีนไม่ติดมัน และลดน้ำหวานหรือของหวานลงก่อนค่ะ",
@@ -748,7 +746,28 @@ const INTENT_RULES = [
   {
     key: "glucose",
     label: "ประเมินค่าน้ำตาล",
-    keywords: ["น้ำตาล", "mg/dl", "mgdl", "ก่อนอาหาร", "หลังอาหาร", "สูงไหม", "ต่ำไหม"],
+    keywords: [
+      "น้ำตาล",
+      "mg/dl",
+      "mgdl",
+      "before meal",
+      "after meal",
+      "before food",
+      "after food",
+      "sugar",
+      "glucose",
+      "blood sugar",
+      "ก่อนอาหาร",
+      "หลังอาหาร",
+      "สูงไหม",
+      "ต่ำไหม",
+      "ค่าน้ำตาล",
+      "น้ำตาลขึ้น",
+      "น้ำตาลลง",
+      "น้ำตาลสูง",
+      "น้ำตาลต่ำ",
+      "ปลายนิ้ว",
+    ],
     promptHint: "ถ้าเป็นตัวเลขค่าน้ำตาล ให้แปลความหมายแบบเข้าใจง่าย บอกเป้าหมายคร่าว ๆ และแนะนำการสังเกตอาการ",
     fallback:
       "ค่าน้ำตาลตัวเลขนี้ใช้ดูแนวโน้มได้ค่ะ ถ้าสูงหรือต่ำกว่าปกติบ่อย ๆ ควรจดเวลาอาหาร อาการ และคุยกับคุณหมอค่ะ",
@@ -756,7 +775,27 @@ const INTENT_RULES = [
   {
     key: "symptom",
     label: "อาการผิดปกติ",
-    keywords: ["หน้ามืด", "เวียนหัว", "ใจสั่น", "เหงื่อ", "อาการ", "ฉุกเฉิน", "โรงพยาบาล", "อันตราย"],
+    keywords: [
+      "หน้ามืด",
+      "เวียนหัว",
+      "ใจสั่น",
+      "เหงื่อ",
+      "อาการ",
+      "ฉุกเฉิน",
+      "โรงพยาบาล",
+      "อันตราย",
+      "มือสั่น",
+      "หายใจไม่อิ่ม",
+      "เหนื่อยมาก",
+      "ชา",
+      "symptom",
+      "dizzy",
+      "shaky",
+      "sweat",
+      "hospital",
+      "emergency",
+      "danger",
+    ],
     promptHint: "ถ้าเป็นอาการผิดปกติ ให้ประเมินความเร่งด่วน ชี้สัญญาณอันตราย และบอกให้ไปพบแพทย์ทันทีเมื่อจำเป็น",
     fallback:
       "ถ้ามีหน้ามืด ใจสั่น เหงื่อแตก ซึมมาก หายใจลำบาก หรือเจ็บหน้าอก ให้รีบไปโรงพยาบาลหรือโทรฉุกเฉินทันทีค่ะ",
@@ -764,7 +803,23 @@ const INTENT_RULES = [
   {
     key: "exercise",
     label: "ออกกำลังกาย",
-    keywords: ["เดิน", "ออกกำลังกาย", "วิ่ง", "โยคะ", "ขยับ", "เผาผลาญ"],
+    keywords: [
+      "เดิน",
+      "ออกกำลังกาย",
+      "วิ่ง",
+      "โยคะ",
+      "ขยับ",
+      "เผาผลาญ",
+      "ปั่นจักรยาน",
+      "ยืดเส้น",
+      "exercise",
+      "workout",
+      "walk",
+      "run",
+      "yoga",
+      "cardio",
+      "stretch",
+    ],
     promptHint: "ถ้าเป็นเรื่องออกกำลังกาย ให้แนะนำแบบปลอดภัย เหมาะกับผู้สูงอายุ และเริ่มทีละน้อย",
     fallback:
       "เริ่มจากการเดินเบา ๆ หรือขยับร่างกายหลังอาหาร 10-15 นาที จะช่วยให้ร่างกายใช้น้ำตาลได้ดีขึ้นค่ะ",
@@ -772,7 +827,27 @@ const INTENT_RULES = [
   {
     key: "medicine",
     label: "ยาและการรักษา",
-    keywords: ["ยา", "ฉีด", "อินซูลิน", "รักษา", "แพ้ยา", "หมอ", "แพทย์"],
+    keywords: [
+      "ยาเบาหวาน",
+      "กินยา",
+      "ลืมยา",
+      "หยุดยา",
+      "ฉีดยา",
+      "ฉีด",
+      "อินซูลิน",
+      "รักษา",
+      "แพ้ยา",
+      "แพทย์",
+      "เภสัช",
+      "drug",
+      "medicine",
+      "med",
+      "insulin",
+      "dose",
+      "doctor",
+      "tablet",
+      "pill",
+    ],
     promptHint: "ถ้าเกี่ยวกับยา ให้ย้ำว่าไม่ควรปรับยาเอง และควรคุยกับแพทย์หรือเภสัชกรเมื่อมีข้อสงสัย",
     fallback:
       "เรื่องยาอย่าปรับเองนะคะ ถ้ามีข้อสงสัยเรื่องยา ฉีด หรือผลข้างเคียง ควรปรึกษาคุณหมอหรือเภสัชกรที่ดูแลอยู่ค่ะ",
@@ -780,7 +855,20 @@ const INTENT_RULES = [
   {
     key: "report",
     label: "รายงานสุขภาพ",
-    keywords: ["รายงาน", "ประวัติ", "สรุป", "กราฟ", "แนวโน้ม"],
+    keywords: [
+      "รายงาน",
+      "ประวัติ",
+      "สรุป",
+      "กราฟ",
+      "แนวโน้ม",
+      "ดูย้อนหลัง",
+      "report",
+      "summary",
+      "history",
+      "chart",
+      "trend",
+      "dashboard",
+    ],
     promptHint: "ถ้าเป็นเรื่องรายงาน ให้สรุปแนวโน้ม จุดที่ดี จุดที่ควรระวัง และบอกสิ่งที่ควรทำต่อ",
     fallback:
       "ถ้าจะดูภาพรวมสุขภาพ ให้ดูแนวโน้มค่าน้ำตาลร่วมกับอาหาร อาการ และเวลาที่บันทึกไว้จะช่วยได้มากค่ะ",
@@ -795,13 +883,94 @@ const DEFAULT_INTENT_RULE = {
     "ขออภัยค่ะ ตอนนี้หมอ AI ยังตอบไม่ครบ แต่ถ้าคุณบอกเพิ่มว่าอยากถามเรื่องอาหาร ค่าน้ำตาล อาการ หรือยา ฉันจะช่วยต่อให้ได้ค่ะ",
 };
 
+const INTENT_PRIORITY = {
+  symptom: 7,
+  glucose: 6,
+  medicine: 5,
+  food: 4,
+  exercise: 3,
+  report: 2,
+  greeting: 1,
+  general: 0,
+};
+
+function getKeywordMatchScore(source, keyword) {
+  const normalizedKeyword = String(keyword || "").trim().toLowerCase();
+  if (!normalizedKeyword) return 0;
+
+  if (/^[a-z0-9/_ -]+$/i.test(normalizedKeyword)) {
+    const escaped = normalizedKeyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`, "i").test(source) ? 2 : 0;
+  }
+
+  return source.includes(normalizedKeyword) ? Math.max(1, Math.min(normalizedKeyword.length, 6)) : 0;
+}
+
 function findIntentRule(rawIntent, originalMessage = "") {
   const source = `${normalizeText(rawIntent)} ${normalizeText(originalMessage)}`.toLowerCase();
-  const matchedRule = INTENT_RULES.find((rule) =>
-    rule.keywords.some((keyword) => source.includes(keyword))
-  );
+  const scoredRules = INTENT_RULES.map((rule) => {
+    const score = rule.keywords.reduce((total, keyword) => {
+      return total + getKeywordMatchScore(source, keyword);
+    }, 0);
 
-  if (matchedRule) return matchedRule;
+    return { rule, score };
+  }).filter((item) => item.score > 0);
+
+  if (/\b\d{2,3}\b/.test(source) && /(mg\/dl|mgdl|น้ำตาล|glucose|sugar|ก่อนอาหาร|หลังอาหาร)/i.test(source)) {
+    const glucoseRule = INTENT_RULES.find((rule) => rule.key === "glucose");
+    if (glucoseRule) {
+      const existing = scoredRules.find((item) => item.rule.key === "glucose");
+      if (existing) {
+        existing.score += 2;
+      } else {
+        scoredRules.push({ rule: glucoseRule, score: 2 });
+      }
+    }
+  }
+
+  if (/(ลืมยา|กินยา|ฉีดยา|ยาเบาหวาน|medicine|insulin|drug|pill|tablet|dose)/i.test(source)) {
+    const medicineRule = INTENT_RULES.find((rule) => rule.key === "medicine");
+    if (medicineRule) {
+      const existing = scoredRules.find((item) => item.rule.key === "medicine");
+      if (existing) {
+        existing.score += 4;
+      } else {
+        scoredRules.push({ rule: medicineRule, score: 4 });
+      }
+    }
+  }
+
+  if (/(เดิน|ออกกำลังกาย|วิ่ง|โยคะ|ปั่นจักรยาน|ยืดเส้น|exercise|workout|walk|run|yoga|cardio|stretch)/i.test(source)) {
+    const exerciseRule = INTENT_RULES.find((rule) => rule.key === "exercise");
+    if (exerciseRule) {
+      const existing = scoredRules.find((item) => item.rule.key === "exercise");
+      if (existing) {
+        existing.score += 4;
+      } else {
+        scoredRules.push({ rule: exerciseRule, score: 4 });
+      }
+    }
+  }
+
+  if (/(หน้ามืด|ใจสั่น|เหงื่อ|เวียนหัว|โรงพยาบาล|ฉุกเฉิน|อันตราย|hospital|emergency|danger|dizzy|shaky)/i.test(source)) {
+    const symptomRule = INTENT_RULES.find((rule) => rule.key === "symptom");
+    if (symptomRule) {
+      const existing = scoredRules.find((item) => item.rule.key === "symptom");
+      if (existing) {
+        existing.score += 4;
+      } else {
+        scoredRules.push({ rule: symptomRule, score: 4 });
+      }
+    }
+  }
+
+  if (scoredRules.length > 0) {
+    scoredRules.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (INTENT_PRIORITY[b.rule.key] || 0) - (INTENT_PRIORITY[a.rule.key] || 0);
+    });
+    return scoredRules[0].rule;
+  }
 
   const cleanedIntent = normalizeText(rawIntent)
     .replace(/^intent[:：-]?\s*/i, "")
@@ -856,21 +1025,6 @@ function normalizePopularQuestionCategory(rawCategory) {
 
 function getIntentDisplayLabel(intentKey) {
   return INTENT_DISPLAY_LABELS[intentKey] || "คำถามทั่วไป";
-}
-
-async function recordQuestionStat(message, intent) {
-  const questionText = normalizeText(message);
-  if (!questionText) return;
-
-  await db.run(
-    `INSERT INTO question_stats (question_text, intent_key, count, updated_at)
-     VALUES (?, ?, 1, NOW())
-     ON CONFLICT(question_text) DO UPDATE
-     SET count = question_stats.count + 1,
-         intent_key = EXCLUDED.intent_key,
-         updated_at = NOW()`,
-    [questionText, intent?.key || "general"]
-  );
 }
 
 async function recordChatLog({ userId, message, intentKey, responseModel, usedFallback }) {
@@ -1267,12 +1421,6 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     const lastGlucose = await getLatestGlucoseRecord(req.authUser.id);
     const intent = findIntentRule("", message);
 
-    try {
-      await recordQuestionStat(message, intent);
-    } catch (error) {
-      console.warn("Intent recording error:", error?.message || error);
-    }
-
     const prompt = buildDiabetesChatPrompt({
       user: req.authUser,
       lastGlucose,
@@ -1531,12 +1679,6 @@ app.post("/api/chat", requireAuth, async (req, res) => {
     const lastGlucose = await getLatestGlucoseRecord(req.authUser.id);
     const intent = findIntentRule("", message);
 
-    try {
-      await recordQuestionStat(message, intent);
-    } catch (error) {
-      console.warn("Intent recording error:", error?.message || error);
-    }
-
     const prompt = buildDiabetesChatPrompt({
       user: req.authUser,
       lastGlucose,
@@ -1652,114 +1794,13 @@ app.get("/api/admin/health", requireAdminAuth, async (_req, res) => {
 app.get("/api/admin/overview", requireAdminAuth, async (req, res) => {
   try {
     const range = getAdminDateRange(req);
-    const userDateFilter = buildDateConditions("created_at", range);
-    const glucoseDateFilter = buildDateConditions("recorded_at", range);
-    const chatDateFilter = buildDateConditions("created_at", range);
-    const topQuestionConditions = [...chatDateFilter.conditions, "question_text <> ALL(?)"];
-    const topQuestionParams = [...chatDateFilter.params, POPULAR_QUESTION_EXCLUDED_TEXTS];
-
-    const [userSummary, glucoseSummary, questionSummary, reminderSummary, topIntentRow, topQuestionRow, intentStats, topQuestions] =
-      await Promise.all([
-        db.get(
-          `SELECT COUNT(*)::int AS total_users
-           FROM users
-           ${buildWhereClause(userDateFilter.conditions)}`,
-          userDateFilter.params
-        ),
-        db.get(
-          `SELECT COUNT(*)::int AS total_glucose_records
-           FROM glucose_history
-           ${buildWhereClause(glucoseDateFilter.conditions)}`,
-          glucoseDateFilter.params
-        ),
-        db.get(
-          `SELECT
-             COUNT(DISTINCT question_text)::int AS total_question_types,
-             COUNT(*)::int AS total_questions
-           FROM ai_chat_logs
-           ${buildWhereClause(chatDateFilter.conditions)}`,
-          chatDateFilter.params
-        ),
-        db.get("SELECT COUNT(DISTINCT user_id)::int AS active_reminder_users FROM meal_reminders WHERE is_enabled = TRUE"),
-        db.get(
-          `SELECT intent_key, COUNT(*)::int AS total
-           FROM ai_chat_logs
-           ${buildWhereClause(chatDateFilter.conditions)}
-           GROUP BY intent_key
-           ORDER BY total DESC, intent_key ASC
-           LIMIT 1`,
-          chatDateFilter.params
-        ),
-        db.get(
-          `SELECT question_text, intent_key, COUNT(*)::int AS count
-           FROM ai_chat_logs
-           ${buildWhereClause(topQuestionConditions)}
-           GROUP BY question_text, intent_key
-           ORDER BY count DESC, MAX(created_at) DESC, question_text ASC
-           LIMIT 1`,
-          topQuestionParams
-        ),
-        db.all(
-          `SELECT intent_key, COUNT(*)::int AS count
-           FROM ai_chat_logs
-           ${buildWhereClause(chatDateFilter.conditions)}
-           GROUP BY intent_key
-           ORDER BY count DESC, intent_key ASC`,
-          chatDateFilter.params
-        ),
-        db.all(
-          `SELECT question_text, intent_key, COUNT(*)::int AS count, MAX(created_at) AS updated_at
-           FROM ai_chat_logs
-           ${buildWhereClause(topQuestionConditions)}
-           GROUP BY question_text, intent_key
-           ORDER BY count DESC, updated_at DESC, question_text ASC
-           LIMIT 20`,
-          topQuestionParams
-        ),
-      ]);
-
-    const totalQuestions = Number(questionSummary?.total_questions) || 0;
-    const totalQuestionTypes = Number(questionSummary?.total_question_types) || 0;
-
-    res.json({
-      summary: {
-        totalUsers: Number(userSummary?.total_users) || 0,
-        totalGlucoseRecords: Number(glucoseSummary?.total_glucose_records) || 0,
-        totalQuestions,
-        totalQuestionTypes,
-        activeReminderUsers: Number(reminderSummary?.active_reminder_users) || 0,
-        averageQuestionsPerType: totalQuestionTypes ? Math.round(totalQuestions / totalQuestionTypes) : 0,
-        topCategory: topIntentRow
-          ? {
-              intentKey: topIntentRow.intent_key,
-              label: getIntentDisplayLabel(topIntentRow.intent_key),
-              count: Number(topIntentRow.total) || 0,
-            }
-          : null,
-        topQuestion: topQuestionRow
-          ? {
-              questionText: topQuestionRow.question_text,
-              intentKey: topQuestionRow.intent_key,
-              label: getIntentDisplayLabel(topQuestionRow.intent_key),
-              count: Number(topQuestionRow.count) || 0,
-            }
-          : null,
-      },
-      intentStats: intentStats.map((item) => ({
-        intentKey: item.intent_key,
-        label: getIntentDisplayLabel(item.intent_key),
-        count: Number(item.count) || 0,
-      })),
-      topQuestions: topQuestions.map((item) => ({
-        questionText: item.question_text,
-        intentKey: item.intent_key,
-        label: getIntentDisplayLabel(item.intent_key),
-        count: Number(item.count) || 0,
-        updatedAt: item.updated_at,
-      })),
+    const overview = await getAdminOverview({
+      db,
       range,
-      updatedAt: new Date().toISOString(),
+      excludedTexts: POPULAR_QUESTION_EXCLUDED_TEXTS,
+      getIntentDisplayLabel,
     });
+    res.json(overview);
   } catch (error) {
     console.error("Fetch admin overview error:", error);
     res.status(500).json({ error: "ดึงภาพรวมแอดมินไม่สำเร็จ" });
@@ -1769,75 +1810,12 @@ app.get("/api/admin/overview", requireAdminAuth, async (req, res) => {
 app.get("/api/admin/quality", requireAdminAuth, async (req, res) => {
   try {
     const range = getAdminDateRange(req);
-    const chatDateFilter = buildDateConditions("created_at", range);
-    const fallbackConditions = [...chatDateFilter.conditions, "used_fallback = TRUE"];
-
-    const [summaryRow, fallbackQuestions, recentFallbacks, modelStats] = await Promise.all([
-      db.get(
-        `SELECT
-           COUNT(*)::int AS total_chats,
-           COALESCE(SUM(CASE WHEN used_fallback THEN 1 ELSE 0 END), 0)::int AS fallback_count
-         FROM ai_chat_logs
-         ${buildWhereClause(chatDateFilter.conditions)}`,
-        chatDateFilter.params
-      ),
-      db.all(
-        `SELECT question_text, intent_key, COUNT(*)::int AS count
-         FROM ai_chat_logs
-         ${buildWhereClause(fallbackConditions)}
-         GROUP BY question_text, intent_key
-         ORDER BY count DESC, question_text ASC
-         LIMIT 12`,
-        chatDateFilter.params
-      ),
-      db.all(
-        `SELECT question_text, intent_key, response_model, created_at
-         FROM ai_chat_logs
-         ${buildWhereClause(fallbackConditions)}
-         ORDER BY created_at DESC
-         LIMIT 12`,
-        chatDateFilter.params
-      ),
-      db.all(
-        `SELECT response_model, COUNT(*)::int AS count
-         FROM ai_chat_logs
-         ${buildWhereClause(chatDateFilter.conditions)}
-         GROUP BY response_model
-         ORDER BY count DESC, response_model ASC`,
-        chatDateFilter.params
-      ),
-    ]);
-
-    const totalChats = Number(summaryRow?.total_chats) || 0;
-    const fallbackCount = Number(summaryRow?.fallback_count) || 0;
-
-    res.json({
-      summary: {
-        totalChats,
-        fallbackCount,
-        successCount: Math.max(totalChats - fallbackCount, 0),
-        fallbackRate: totalChats ? Number(((fallbackCount / totalChats) * 100).toFixed(1)) : 0,
-      },
-      fallbackQuestions: fallbackQuestions.map((item) => ({
-        questionText: item.question_text,
-        intentKey: item.intent_key,
-        label: getIntentDisplayLabel(item.intent_key),
-        count: Number(item.count) || 0,
-      })),
-      recentFallbacks: recentFallbacks.map((item) => ({
-        questionText: item.question_text,
-        intentKey: item.intent_key,
-        label: getIntentDisplayLabel(item.intent_key),
-        responseModel: item.response_model || "fallback",
-        createdAt: item.created_at,
-      })),
-      modelStats: modelStats.map((item) => ({
-        model: item.response_model || "unknown",
-        count: Number(item.count) || 0,
-      })),
+    const quality = await getAdminQuality({
+      db,
       range,
-      updatedAt: new Date().toISOString(),
+      getIntentDisplayLabel,
     });
+    res.json(quality);
   } catch (error) {
     console.error("Fetch admin quality error:", error);
     res.status(500).json({ error: "ดึงข้อมูลคุณภาพ AI ไม่สำเร็จ" });
@@ -1847,41 +1825,12 @@ app.get("/api/admin/quality", requireAdminAuth, async (req, res) => {
 app.get("/api/admin/export/questions.csv", requireAdminAuth, async (req, res) => {
   try {
     const range = getAdminDateRange(req);
-    const chatDateFilter = buildDateConditions("created_at", range);
-    const questionConditions = [...chatDateFilter.conditions, "question_text <> ALL(?)"];
-    const rows = await db.all(
-      `SELECT
-         question_text,
-         intent_key,
-         COUNT(*)::int AS count,
-         MAX(created_at) AS last_seen_at
-       FROM ai_chat_logs
-       ${buildWhereClause(questionConditions)}
-       GROUP BY question_text, intent_key
-       ORDER BY count DESC, last_seen_at DESC, question_text ASC`,
-      [...chatDateFilter.params, POPULAR_QUESTION_EXCLUDED_TEXTS]
-    );
-
-    const csv = toCsv(
-      [
-        { key: "questionText", label: "question_text" },
-        { key: "intentKey", label: "intent_key" },
-        { key: "intentLabel", label: "intent_label" },
-        { key: "count", label: "count" },
-        { key: "lastSeenAt", label: "last_seen_at" },
-        { key: "startDate", label: "filter_start_date" },
-        { key: "endDate", label: "filter_end_date" },
-      ],
-      rows.map((item) => ({
-        questionText: item.question_text,
-        intentKey: item.intent_key,
-        intentLabel: getIntentDisplayLabel(item.intent_key),
-        count: Number(item.count) || 0,
-        lastSeenAt: item.last_seen_at,
-        startDate: range.startDate || "",
-        endDate: range.endDate || "",
-      }))
-    );
+    const csv = await exportAdminQuestionsCsv({
+      db,
+      range,
+      excludedTexts: POPULAR_QUESTION_EXCLUDED_TEXTS,
+      getIntentDisplayLabel,
+    });
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="admin-questions.csv"');
@@ -1895,40 +1844,11 @@ app.get("/api/admin/export/questions.csv", requireAdminAuth, async (req, res) =>
 app.get("/api/admin/export/fallbacks.csv", requireAdminAuth, async (req, res) => {
   try {
     const range = getAdminDateRange(req);
-    const chatDateFilter = buildDateConditions("created_at", range);
-    const fallbackConditions = [...chatDateFilter.conditions, "used_fallback = TRUE"];
-    const rows = await db.all(
-      `SELECT
-         question_text,
-         intent_key,
-         response_model,
-         created_at
-       FROM ai_chat_logs
-       ${buildWhereClause(fallbackConditions)}
-       ORDER BY created_at DESC`,
-      chatDateFilter.params
-    );
-
-    const csv = toCsv(
-      [
-        { key: "questionText", label: "question_text" },
-        { key: "intentKey", label: "intent_key" },
-        { key: "intentLabel", label: "intent_label" },
-        { key: "responseModel", label: "response_model" },
-        { key: "createdAt", label: "created_at" },
-        { key: "startDate", label: "filter_start_date" },
-        { key: "endDate", label: "filter_end_date" },
-      ],
-      rows.map((item) => ({
-        questionText: item.question_text,
-        intentKey: item.intent_key,
-        intentLabel: getIntentDisplayLabel(item.intent_key),
-        responseModel: item.response_model || "fallback",
-        createdAt: item.created_at,
-        startDate: range.startDate || "",
-        endDate: range.endDate || "",
-      }))
-    );
+    const csv = await exportAdminFallbacksCsv({
+      db,
+      range,
+      getIntentDisplayLabel,
+    });
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", 'attachment; filename="admin-fallbacks.csv"');
@@ -1939,9 +1859,15 @@ app.get("/api/admin/export/fallbacks.csv", requireAdminAuth, async (req, res) =>
   }
 });
 
-app.get("/api/admin/stats", requireAdminAuth, async (_req, res) => {
+app.get("/api/admin/stats", requireAdminAuth, async (req, res) => {
   try {
-    const stats = await db.all("SELECT * FROM question_stats ORDER BY count DESC");
+    const range = getAdminDateRange(req);
+    const stats = await getAdminStats({
+      db,
+      range,
+      excludedTexts: POPULAR_QUESTION_EXCLUDED_TEXTS,
+      getIntentDisplayLabel,
+    });
     res.json(stats);
   } catch (error) {
     console.error("Fetch admin stats error:", error);
@@ -1957,11 +1883,12 @@ app.get("/api/questions/popular", requireAuth, async (req, res) => {
     const intentKeys = POPULAR_QUESTION_INTENT_GROUPS[category] || POPULAR_QUESTION_INTENT_GROUPS.report;
 
     const questions = await db.all(
-      `SELECT question_text, intent_key, count
-       FROM question_stats
+      `SELECT question_text, intent_key, COUNT(*)::int AS count, MAX(created_at) AS updated_at
+       FROM ai_chat_logs
        WHERE intent_key = ANY(?)
          AND question_text <> ALL(?)
-       ORDER BY count DESC, id DESC
+       GROUP BY question_text, intent_key
+       ORDER BY count DESC, updated_at DESC, question_text ASC
        LIMIT ?`,
       [intentKeys, POPULAR_QUESTION_EXCLUDED_TEXTS, limit]
     );

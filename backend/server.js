@@ -134,6 +134,26 @@ const PROFILE_STAGE_OPTIONS = new Set(["1", "2", "3"]);
 const TREATMENT_OPTIONS = new Set(["กินยา", "ฉีดยา", "ไม่มี"]);
 const GLUCOSE_PHASE_OPTIONS = new Set(["before", "after"]);
 const USERNAME_REGEX = /^[A-Za-z0-9._-]{4,20}$/;
+const SURVEY_GENDER_OPTIONS = new Set(["ชาย", "หญิง", "ไม่ระบุ"]);
+const SURVEY_AGE_RANGE_OPTIONS = new Set([
+  "ต่ำกว่า 30 ปี",
+  "30-39 ปี",
+  "40-49 ปี",
+  "50-59 ปี",
+  "60 ปีขึ้นไป",
+]);
+const SURVEY_RESPONDENT_STATUS_OPTIONS = new Set([
+  "ผู้ป่วยโรคเบาหวาน",
+  "ญาติหรือผู้ดูแล",
+  "บุคลากรทางการแพทย์",
+  "บุคคลทั่วไป",
+]);
+const SURVEY_SMARTPHONE_EXPERIENCE_OPTIONS = new Set([
+  "น้อยกว่า 6 เดือน",
+  "6 เดือน - 1 ปี",
+  "1 - 3 ปี",
+  "มากกว่า 3 ปี",
+]);
 
 const SESSION_COOKIE_NAME = "diabetes_session";
 const ADMIN_SESSION_COOKIE_NAME = "diabetes_admin_session";
@@ -683,6 +703,102 @@ function validateRecordedAt(recordedAt) {
   const value = normalizeText(recordedAt);
   if (!value) return "";
   return Number.isNaN(Date.parse(value)) ? "วันเวลาบันทึกค่าน้ำตาลไม่ถูกต้อง" : "";
+}
+
+function validateSurveyOption(value, allowedOptions, label) {
+  const normalizedValue = normalizeText(value);
+  if (!normalizedValue) return `กรุณาเลือก${label}`;
+  if (!allowedOptions.has(normalizedValue)) return `${label}ไม่ถูกต้อง`;
+  return "";
+}
+
+function validateSurveyScore(value, label) {
+  const score = Number.parseInt(String(value), 10);
+  if (Number.isNaN(score)) return `กรุณาให้คะแนน${label}`;
+  if (score < 1 || score > 5) return `${label}ต้องอยู่ระหว่าง 1 ถึง 5`;
+  return "";
+}
+
+function validateSurveyText(value, label, maxLength) {
+  const normalizedValue = normalizeText(value);
+  if (normalizedValue.length > maxLength) {
+    return `${label}ยาวเกินไป กรุณากรอกไม่เกิน ${maxLength} ตัวอักษร`;
+  }
+  return "";
+}
+
+function normalizeSurveyPayload(body = {}) {
+  return {
+    gender: normalizeText(body.gender),
+    ageRange: normalizeText(body.ageRange),
+    respondentStatus: normalizeText(body.respondentStatus),
+    smartphoneExperience: normalizeText(body.smartphoneExperience),
+    usabilityScore: Number.parseInt(String(body.usabilityScore ?? ""), 10),
+    uiScore: Number.parseInt(String(body.uiScore ?? ""), 10),
+    informationScore: Number.parseInt(String(body.informationScore ?? ""), 10),
+    comment: normalizeText(body.comment),
+    issues: normalizeText(body.issues),
+    suggestions: normalizeText(body.suggestions),
+  };
+}
+
+function validateSurveyPayload(payload) {
+  return (
+    validateSurveyOption(payload.gender, SURVEY_GENDER_OPTIONS, "เพศ") ||
+    validateSurveyOption(payload.ageRange, SURVEY_AGE_RANGE_OPTIONS, "ช่วงอายุ") ||
+    validateSurveyOption(
+      payload.respondentStatus,
+      SURVEY_RESPONDENT_STATUS_OPTIONS,
+      "สถานะของผู้ตอบแบบประเมิน"
+    ) ||
+    validateSurveyOption(
+      payload.smartphoneExperience,
+      SURVEY_SMARTPHONE_EXPERIENCE_OPTIONS,
+      "ประสบการณ์การใช้สมาร์ตโฟน"
+    ) ||
+    validateSurveyScore(payload.usabilityScore, "ด้านการใช้งาน") ||
+    validateSurveyScore(payload.uiScore, "ด้านส่วนติดต่อผู้ใช้") ||
+    validateSurveyScore(payload.informationScore, "ด้านข้อมูลและคำแนะนำ") ||
+    validateSurveyText(payload.comment, "ความคิดเห็นเพิ่มเติม", 600) ||
+    validateSurveyText(payload.issues, "ปัญหาที่พบ", 600) ||
+    validateSurveyText(payload.suggestions, "ข้อเสนอแนะ", 600)
+  );
+}
+
+async function getSurveyStatusForUser(userId) {
+  const [surveyRow, countRow] = await Promise.all([
+    db.get(
+      `SELECT gender, age_range, respondent_status, smartphone_experience,
+              usability_score, ui_score, information_score, comment, issues, suggestions,
+              created_at, updated_at
+       FROM satisfaction_surveys
+       WHERE user_id = ?`,
+      [userId]
+    ),
+    db.get("SELECT COUNT(*)::int AS total FROM satisfaction_surveys"),
+  ]);
+
+  return {
+    hasSubmitted: Boolean(surveyRow),
+    submittedCount: Number(countRow?.total) || 0,
+    targetCount: SURVEY_TARGET_COUNT,
+    survey: surveyRow
+      ? {
+          gender: surveyRow.gender,
+          ageRange: surveyRow.age_range,
+          respondentStatus: surveyRow.respondent_status,
+          smartphoneExperience: surveyRow.smartphone_experience,
+          usabilityScore: Number(surveyRow.usability_score) || 0,
+          uiScore: Number(surveyRow.ui_score) || 0,
+          informationScore: Number(surveyRow.information_score) || 0,
+          comment: surveyRow.comment || "",
+          issues: surveyRow.issues || "",
+          suggestions: surveyRow.suggestions || "",
+          createdAt: surveyRow.created_at || "",
+          updatedAt: surveyRow.updated_at || "",
+        }
+      : null,
+  };
 }
 
 function extractJsonObject(text) {
@@ -1272,6 +1388,70 @@ app.get("/api/admin/session", requireAdminAuth, (req, res) => {
 
 app.get("/api/session", requireAuth, async (req, res) => {
   res.json({ status: "success", user: req.authUser });
+});
+
+app.get("/api/satisfaction-survey/status", requireAuth, async (req, res) => {
+  try {
+    const status = await getSurveyStatusForUser(req.authUser.id);
+    res.json(status);
+  } catch (error) {
+    console.error("Fetch satisfaction survey status error:", error);
+    res.status(500).json({ error: "ดึงสถานะแบบประเมินไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/satisfaction-survey", requireAuth, async (req, res) => {
+  const payload = normalizeSurveyPayload(req.body);
+
+  try {
+    const validationError = validateSurveyPayload(payload);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    await db.run(
+      `INSERT INTO satisfaction_surveys (
+         user_id, gender, age_range, respondent_status, smartphone_experience,
+         usability_score, ui_score, information_score, comment, issues, suggestions, updated_at
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         gender = EXCLUDED.gender,
+         age_range = EXCLUDED.age_range,
+         respondent_status = EXCLUDED.respondent_status,
+         smartphone_experience = EXCLUDED.smartphone_experience,
+         usability_score = EXCLUDED.usability_score,
+         ui_score = EXCLUDED.ui_score,
+         information_score = EXCLUDED.information_score,
+         comment = EXCLUDED.comment,
+         issues = EXCLUDED.issues,
+         suggestions = EXCLUDED.suggestions,
+         updated_at = NOW()`,
+      [
+        req.authUser.id,
+        payload.gender,
+        payload.ageRange,
+        payload.respondentStatus,
+        payload.smartphoneExperience,
+        payload.usabilityScore,
+        payload.uiScore,
+        payload.informationScore,
+        payload.comment,
+        payload.issues,
+        payload.suggestions,
+      ]
+    );
+
+    const status = await getSurveyStatusForUser(req.authUser.id);
+    return res.json({
+      status: "success",
+      message: "บันทึกแบบประเมินความพึงพอใจเรียบร้อยแล้ว",
+      surveyStatus: status,
+    });
+  } catch (error) {
+    console.error("Save satisfaction survey error:", error);
+    return res.status(500).json({ error: "บันทึกแบบประเมินไม่สำเร็จ" });
+  }
 });
 
 app.get("/api/reminders", requireAuth, async (req, res) => {

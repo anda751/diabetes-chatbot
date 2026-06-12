@@ -35,7 +35,7 @@ export default function BarPanel({ chartData, colors, search, tall = false }) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
       <div className="mb-5">
-        <h3 className="text-xl font-black tracking-tight text-slate-900">อันดับคำถามยอดนิยม</h3>
+        <h3 className="text-xl font-black tracking-tight text-slate-900">อันดับหมวดคำถาม</h3>
         <p className="mt-1 text-sm text-slate-500">แสดง intent ที่ถูกถามบ่อยที่สุด</p>
       </div>
 
@@ -66,7 +66,9 @@ export default function BarPanel({ chartData, colors, search, tall = false }) {
             </BarChart>
           </ResponsiveContainer>
         ) : (
-          <EmptyState text={search ? 'ไม่พบข้อมูลตามคำค้นหา' : 'ยังไม่มีข้อมูลสถิติ'} />
+          <EmptyState
+            text={search ? 'ไม่พบข้อมูลตามคำค้นหา' : 'ยังไม่มีข้อมูลสถิติ'}
+          />
         )}
       </div>
     </section>

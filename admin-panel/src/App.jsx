@@ -158,9 +158,14 @@ function App() {
 
     try {
       const normalizedRange = normalizeDateRange(dateRange);
-      if (normalizedRange.startDate && normalizedRange.endDate && normalizedRange.startDate > normalizedRange.endDate) {
+      if (
+        normalizedRange.startDate &&
+        normalizedRange.endDate &&
+        normalizedRange.startDate > normalizedRange.endDate
+      ) {
         throw new Error('ช่วงวันที่ไม่ถูกต้อง');
       }
+
       const queryString = buildAdminQueryString(normalizedRange);
       const [overviewResponse, healthResponse, qualityResponse] = await Promise.all([
         fetch(`${API_URL}/admin/overview${queryString}`, {
@@ -174,7 +179,11 @@ function App() {
         }),
       ]);
 
-      if (overviewResponse.status === 401 || healthResponse.status === 401 || qualityResponse.status === 401) {
+      if (
+        overviewResponse.status === 401 ||
+        healthResponse.status === 401 ||
+        qualityResponse.status === 401
+      ) {
         setIsAuthenticated(false);
         setAdminUser(null);
         return;
@@ -191,6 +200,7 @@ function App() {
       if (!healthResponse.ok) {
         throw new Error(healthData?.error || 'โหลดสถานะระบบไม่สำเร็จ');
       }
+
       if (!qualityResponse.ok) {
         throw new Error(qualityData?.error || 'โหลดข้อมูลคุณภาพ AI ไม่สำเร็จ');
       }
@@ -202,7 +212,10 @@ function App() {
         quality: qualityData || null,
         health: healthData || null,
         updatedAt:
-          overviewData?.updatedAt || qualityData?.updatedAt || healthData?.updatedAt || new Date().toISOString(),
+          overviewData?.updatedAt ||
+          qualityData?.updatedAt ||
+          healthData?.updatedAt ||
+          new Date().toISOString(),
       });
     } catch (fetchError) {
       console.error('Fetch admin dashboard error:', fetchError);
@@ -279,7 +292,11 @@ function App() {
 
     try {
       const normalizedRange = normalizeDateRange(dateRange);
-      if (normalizedRange.startDate && normalizedRange.endDate && normalizedRange.startDate > normalizedRange.endDate) {
+      if (
+        normalizedRange.startDate &&
+        normalizedRange.endDate &&
+        normalizedRange.startDate > normalizedRange.endDate
+      ) {
         throw new Error('ช่วงวันที่ไม่ถูกต้อง');
       }
 
@@ -358,15 +375,19 @@ function App() {
       <div className="grid min-h-screen grid-cols-[280px_1fr]">
         <aside className="border-r border-slate-200 bg-[#111827] px-5 py-6 text-slate-100">
           <div className="px-2">
-            <p className="text-xs font-bold uppercase tracking-[0.22em] text-sky-300">Admin Panel</p>
+            <p className="text-xs font-bold uppercase tracking-[0.22em] text-sky-300">
+              Admin Panel
+            </p>
             <h1 className="mt-3 text-2xl font-black tracking-tight">Diabetes Insight</h1>
             <p className="mt-2 text-sm leading-6 text-slate-400">
-              ใช้ดูภาพรวมคำถาม สุขภาพระบบ และคุณภาพการตอบของหมอ AI
+              ใช้ดูภาพรวมคำถาม การใช้งานสุขภาพ และคุณภาพการตอบของหมอ AI ในหน้าเดียว
             </p>
           </div>
 
           <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-4">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Admin Session</p>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+              Admin Session
+            </p>
             <p className="mt-2 text-sm font-semibold text-white">{adminUser?.username || '-'}</p>
             <p className="mt-1 text-xs text-slate-400">สิทธิ์: {adminUser?.role || 'admin'}</p>
           </div>
@@ -384,8 +405,12 @@ function App() {
           </nav>
 
           <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 p-4">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-300">อัปเดตล่าสุด</p>
-            <p className="mt-2 text-sm font-semibold text-slate-100">{formatThaiDateTime(dashboardData.updatedAt)}</p>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-300">
+              อัปเดตล่าสุด
+            </p>
+            <p className="mt-2 text-sm font-semibold text-slate-100">
+              {formatThaiDateTime(dashboardData.updatedAt)}
+            </p>
             <button
               onClick={handleLogout}
               className="mt-4 inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
@@ -425,9 +450,7 @@ function App() {
             <AnalyticsView intentStats={filteredIntentStats} chartData={chartData} />
           )}
 
-          {activeView === 'popular' && (
-            <PopularQuestionsView questions={filteredQuestions} />
-          )}
+          {activeView === 'popular' && <PopularQuestionsView questions={filteredQuestions} />}
 
           {activeView === 'quality' && <QualityView quality={dashboardData.quality} />}
 
@@ -461,8 +484,12 @@ function AdminLoginScreen({ form, setForm, onSubmit, loading, error }) {
           <ShieldCheck size={28} />
         </div>
         <div className="mt-5 text-center">
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-sky-500">Admin Access</p>
-          <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-900">เข้าสู่ระบบแอดมิน</h1>
+          <p className="text-xs font-bold uppercase tracking-[0.22em] text-sky-500">
+            Admin Access
+          </p>
+          <h1 className="mt-3 text-3xl font-black tracking-tight text-slate-900">
+            เข้าสู่ระบบแอดมิน
+          </h1>
           <p className="mt-2 text-sm leading-6 text-slate-500">
             ใช้สำหรับดูสถิติ ตรวจสถานะระบบ และติดตามคำถามที่ผู้ใช้ถามหมอ AI
           </p>
@@ -524,6 +551,7 @@ function TopBar({
   exportLabel,
 }) {
   const normalizedRange = normalizeDateRange(dateRange);
+
   return (
     <>
       <header className="flex items-start justify-between gap-6">
@@ -582,7 +610,9 @@ function TopBar({
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-sky-400"
               />
               <span className="mt-2 block text-xs font-semibold text-slate-400">
-                {dateRange.endDate ? formatThaiDateOnly(dateRange.endDate) : 'ถ้าเว้นว่าง จะใช้วันเดียวกับ Start'}
+                {dateRange.endDate
+                  ? formatThaiDateOnly(dateRange.endDate)
+                  : 'ถ้าเว้นว่าง จะใช้วันเดียวกับ Start'}
               </span>
             </label>
 
@@ -612,7 +642,8 @@ function TopBar({
           อัปเดตล่าสุด: {formatThaiDateTime(updatedAt)}
         </span>
         <span className="rounded-2xl bg-emerald-50 px-3 py-1.5 font-semibold text-emerald-700 shadow-sm">
-          กรองจริง: {formatThaiDateOnly(normalizedRange.startDate)} ถึง {formatThaiDateOnly(normalizedRange.endDate)}
+          กรองจริง: {formatThaiDateOnly(normalizedRange.startDate)} ถึง{' '}
+          {formatThaiDateOnly(normalizedRange.endDate)}
         </span>
         {loading ? (
           <span className="rounded-2xl bg-amber-50 px-3 py-1.5 font-semibold text-amber-700">
@@ -633,11 +664,41 @@ function OverviewView({ summary, chartData, topQuestions, health }) {
   return (
     <>
       <section className="mt-7 grid grid-cols-5 gap-5">
-        <MetricCard icon={<Users size={20} />} title="ผู้ใช้ทั้งหมด" value={summary?.totalUsers || 0} helper="นับจากบัญชีที่สมัครไว้" tone="blue" />
-        <MetricCard icon={<MessageSquareText size={20} />} title="คำถามทั้งหมด" value={summary?.totalQuestions || 0} helper="รวมทุกครั้งที่ระบบบันทึกคำถาม" tone="emerald" />
-        <MetricCard icon={<ClipboardList size={20} />} title="คำถามไม่ซ้ำ" value={summary?.totalQuestionTypes || 0} helper="จำนวนหัวข้อคำถามที่ไม่ซ้ำกัน" tone="amber" />
-        <MetricCard icon={<Activity size={20} />} title="บันทึกน้ำตาล" value={summary?.totalGlucoseRecords || 0} helper="จำนวนรายการในประวัติน้ำตาล" tone="indigo" />
-        <MetricCard icon={<Stethoscope size={20} />} title="ผู้ใช้ที่ตั้งเตือน" value={summary?.activeReminderUsers || 0} helper="ผู้ใช้ที่เปิดมื้ออาหารอย่างน้อย 1 รายการ" tone="sky" />
+        <MetricCard
+          icon={<Users size={20} />}
+          title="ผู้ใช้ทั้งหมด"
+          value={summary?.totalUsers || 0}
+          helper="นับจากบัญชีที่สมัครไว้"
+          tone="blue"
+        />
+        <MetricCard
+          icon={<MessageSquareText size={20} />}
+          title="คำถามทั้งหมด"
+          value={summary?.totalQuestions || 0}
+          helper="รวมทุกครั้งที่ระบบบันทึกคำถาม"
+          tone="emerald"
+        />
+        <MetricCard
+          icon={<ClipboardList size={20} />}
+          title="คำถามไม่ซ้ำ"
+          value={summary?.totalQuestionTypes || 0}
+          helper="จำนวนหัวข้อคำถามที่ไม่ซ้ำกัน"
+          tone="amber"
+        />
+        <MetricCard
+          icon={<Activity size={20} />}
+          title="บันทึกน้ำตาล"
+          value={summary?.totalGlucoseRecords || 0}
+          helper="จำนวนรายการในประวัติน้ำตาล"
+          tone="indigo"
+        />
+        <MetricCard
+          icon={<Stethoscope size={20} />}
+          title="ผู้ใช้ที่ตั้งเตือน"
+          value={summary?.activeReminderUsers || 0}
+          helper="ผู้ใช้ที่เปิดมื้ออาหารอย่างน้อย 1 รายการ"
+          tone="sky"
+        />
       </section>
 
       <section className="mt-7 grid grid-cols-[1.35fr_0.85fr] gap-6">
@@ -650,7 +711,10 @@ function OverviewView({ summary, chartData, topQuestions, health }) {
       </section>
 
       <section className="mt-7 grid grid-cols-[1.2fr_0.8fr] gap-6">
-        <Panel title="คำถามที่ถูกถามบ่อยที่สุด" description="ข้อมูลจริงจาก backend ที่ถูกถามบ่อยล่าสุด">
+        <Panel
+          title="คำถามที่ถูกถามบ่อยที่สุด"
+          description="ข้อมูลจริงจาก backend ที่ถูกถามบ่อยล่าสุด"
+        >
           <PopularQuestionList questions={topQuestions.slice(0, 6)} />
         </Panel>
 
@@ -659,12 +723,20 @@ function OverviewView({ summary, chartData, topQuestions, health }) {
             <InsightCard
               title="หมวดที่ถูกถามมากสุด"
               value={summary?.topCategory?.label || '-'}
-              helper={summary?.topCategory ? `${summary.topCategory.count} ครั้ง` : 'ยังไม่มีข้อมูล'}
+              helper={
+                summary?.topCategory
+                  ? `${summary.topCategory.count} ครั้ง`
+                  : 'ยังไม่มีข้อมูล'
+              }
             />
             <InsightCard
               title="คำถามเด่นที่สุด"
               value={summary?.topQuestion?.questionText || '-'}
-              helper={summary?.topQuestion ? `${summary.topQuestion.count} ครั้ง` : 'ยังไม่มีข้อมูล'}
+              helper={
+                summary?.topQuestion
+                  ? `${summary.topQuestion.count} ครั้ง`
+                  : 'ยังไม่มีข้อมูล'
+              }
             />
             <InsightCard
               title="ค่าเฉลี่ยต่อหัวข้อ"
@@ -693,7 +765,10 @@ function AnalyticsView({ intentStats, chartData }) {
       <Panel title="เรียงตามหมวดคำถาม" description="ดูว่าคนสนใจเรื่องใดมากที่สุดในระบบ">
         <div className="space-y-3">
           {intentStats.map((item, index) => (
-            <div key={item.intentKey} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4">
+            <div
+              key={item.intentKey}
+              className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4"
+            >
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-sm font-black text-slate-700 shadow-sm">
@@ -719,7 +794,10 @@ function AnalyticsView({ intentStats, chartData }) {
 function PopularQuestionsView({ questions }) {
   return (
     <section className="mt-7">
-      <Panel title="คำถามยอดนิยมจริง" description="ใช้ดูคำถามจริงที่ผู้ใช้พิมพ์เข้ามา และควรนำไปปรับ quick prompts หรือ fallback ต่อ">
+      <Panel
+        title="คำถามยอดนิยมจริง"
+        description="ใช้ดูคำถามจริงที่ผู้ใช้พิมพ์เข้ามา และควรนำไปปรับ quick prompts หรือ fallback ต่อ"
+      >
         <PopularQuestionList questions={questions} />
       </Panel>
     </section>
@@ -743,12 +821,23 @@ function HealthView({ health }) {
         {cards.map((item) => {
           const Icon = item.icon;
           return (
-            <div key={item.key} className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-              <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${item.ok ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+            <div
+              key={item.key}
+              className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm"
+            >
+              <div
+                className={`flex h-12 w-12 items-center justify-center rounded-2xl ${
+                  item.ok ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+                }`}
+              >
                 <Icon size={22} />
               </div>
               <p className="mt-4 text-lg font-black text-slate-900">{item.label}</p>
-              <p className={`mt-2 text-sm font-semibold ${item.ok ? 'text-emerald-600' : 'text-rose-600'}`}>
+              <p
+                className={`mt-2 text-sm font-semibold ${
+                  item.ok ? 'text-emerald-600' : 'text-rose-600'
+                }`}
+              >
                 {item.ok ? 'พร้อมใช้งาน' : 'ต้องตรวจเพิ่ม'}
               </p>
             </div>
@@ -760,7 +849,10 @@ function HealthView({ health }) {
         <Panel title="โมเดล AI ที่เปิดใช้" description="ใช้ตรวจว่า backend รองรับโมเดลอะไรบ้างในรอบนี้">
           <div className="flex flex-wrap gap-3">
             {(health?.chatModels || []).map((model) => (
-              <span key={model} className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
+              <span
+                key={model}
+                className="rounded-2xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700"
+              >
                 {model}
               </span>
             ))}
@@ -796,14 +888,14 @@ function QualityView({ quality }) {
         />
         <MetricCard
           icon={<Siren size={20} />}
-          title="fallback"
+          title="ใช้คำตอบสำรอง"
           value={summary.fallbackCount || 0}
           helper="จำนวนครั้งที่ต้องใช้คำตอบสำรอง"
           tone="amber"
         />
         <MetricCard
           icon={<Activity size={20} />}
-          title="fallback rate"
+          title="อัตรา fallback"
           value={`${summary.fallbackRate || 0}%`}
           helper="สัดส่วนคำถามที่ AI ยังตอบได้ไม่ดีพอ"
           tone="indigo"
@@ -811,7 +903,10 @@ function QualityView({ quality }) {
       </section>
 
       <section className="mt-7 grid grid-cols-[1fr_1fr] gap-6">
-        <Panel title="คำถามที่ fallback บ่อย" description="ใช้ดูว่าคำถามไหนควรเอาไปปรับ prompt หรือเพิ่มข้อมูลก่อน">
+        <Panel
+          title="คำถามที่ fallback บ่อย"
+          description="ใช้ดูว่าคำถามไหนควรเอาไปปรับ prompt หรือเพิ่มข้อมูลก่อน"
+        >
           <PopularQuestionList
             questions={fallbackQuestions.map((item) => ({
               ...item,
@@ -824,16 +919,23 @@ function QualityView({ quality }) {
           {recentFallbacks.length ? (
             <div className="space-y-3">
               {recentFallbacks.map((item, index) => (
-                <div key={`${item.questionText}-${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4">
+                <div
+                  key={`${item.questionText}-${index}`}
+                  className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4"
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600 shadow-sm">
                           {item.label}
                         </span>
-                        <span className="text-xs text-slate-400">{formatThaiDateTime(item.createdAt)}</span>
+                        <span className="text-xs text-slate-400">
+                          {formatThaiDateTime(item.createdAt)}
+                        </span>
                       </div>
-                      <p className="mt-2 text-sm font-bold leading-6 text-slate-800">{item.questionText}</p>
+                      <p className="mt-2 text-sm font-bold leading-6 text-slate-800">
+                        {item.questionText}
+                      </p>
                     </div>
                     <span className="rounded-xl bg-rose-100 px-3 py-1.5 text-xs font-bold text-rose-700">
                       {item.responseModel || 'fallback'}
@@ -849,10 +951,16 @@ function QualityView({ quality }) {
       </section>
 
       <section className="mt-7">
-        <Panel title="โมเดลที่ถูกใช้ตอบ" description="ช่วยดูว่าสัดส่วนการตอบออกจากโมเดลจริงและ fallback เป็นอย่างไร">
+        <Panel
+          title="โมเดลที่ถูกใช้ตอบ"
+          description="ช่วยดูว่าสัดส่วนการตอบออกจากโมเดลจริงและ fallback เป็นอย่างไร"
+        >
           <div className="grid grid-cols-3 gap-4">
             {modelStats.map((item) => (
-              <div key={item.model} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4">
+              <div
+                key={item.model}
+                className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4"
+              >
                 <p className="text-sm font-bold text-slate-500">โมเดล</p>
                 <p className="mt-2 text-lg font-black text-slate-900">{item.model}</p>
                 <p className="mt-2 text-sm font-semibold text-slate-600">{item.count} ครั้ง</p>
@@ -868,7 +976,10 @@ function QualityView({ quality }) {
 function QuestionTableView({ questions, search }) {
   return (
     <section className="mt-7">
-      <Panel title="ตารางคำถามจริง" description={`แสดง ${questions.length} รายการ${search ? ' จากผลค้นหา' : ''}`}>
+      <Panel
+        title="ตารางคำถามจริง"
+        description={`แสดง ${questions.length} รายการ${search ? ' จากผลค้นหา' : ''}`}
+      >
         <DataTable rows={questions} search={search} />
       </Panel>
     </section>
@@ -883,7 +994,10 @@ function PopularQuestionList({ questions }) {
   return (
     <div className="space-y-3">
       {questions.map((item, index) => (
-        <div key={`${item.intentKey}-${item.questionText}-${index}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4">
+        <div
+          key={`${item.intentKey}-${item.questionText}-${index}`}
+          className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-4"
+        >
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-sm font-black text-blue-700">
               {index + 1}
@@ -894,12 +1008,16 @@ function PopularQuestionList({ questions }) {
                   {item.label}
                 </span>
                 {item.updatedAt ? (
-                  <span className="text-xs text-slate-400">{formatThaiDateTime(item.updatedAt)}</span>
+                  <span className="text-xs text-slate-400">
+                    {formatThaiDateTime(item.updatedAt)}
+                  </span>
                 ) : (
                   <span className="text-xs text-slate-300">ยังไม่มีเวลา log จริง</span>
                 )}
               </div>
-              <p className="mt-2 text-sm font-bold leading-6 text-slate-800">{item.questionText}</p>
+              <p className="mt-2 text-sm font-bold leading-6 text-slate-800">
+                {item.questionText}
+              </p>
             </div>
             <div className="rounded-xl bg-slate-900 px-3 py-1.5 text-xs font-bold text-white">
               {item.count} ครั้ง
@@ -926,8 +1044,13 @@ function DataTable({ rows, search }) {
 
       <div className="divide-y divide-slate-100">
         {rows.map((item, index) => (
-          <div key={`${item.intentKey}-${item.questionText}-${index}`} className="grid grid-cols-[1fr_180px_110px] gap-4 px-5 py-4 hover:bg-slate-50">
-            <div className="text-sm font-semibold leading-6 text-slate-800">{item.questionText}</div>
+          <div
+            key={`${item.intentKey}-${item.questionText}-${index}`}
+            className="grid grid-cols-[1fr_180px_110px] gap-4 px-5 py-4 hover:bg-slate-50"
+          >
+            <div className="text-sm font-semibold leading-6 text-slate-800">
+              {item.questionText}
+            </div>
             <div>
               <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-700">
                 {item.label}
@@ -948,7 +1071,11 @@ function ChartPanelFallback({ tall = false, compact = false }) {
         <div className="h-6 w-40 rounded bg-slate-100" />
         <div className="h-4 w-56 rounded bg-slate-100" />
       </div>
-      <div className={`${tall ? 'h-[540px]' : compact ? 'h-[280px]' : 'h-[360px]'} animate-pulse rounded-2xl bg-slate-100`} />
+      <div
+        className={`${
+          tall ? 'h-[540px]' : compact ? 'h-[280px]' : 'h-[360px]'
+        } animate-pulse rounded-2xl bg-slate-100`}
+      />
     </div>
   );
 }
@@ -979,7 +1106,11 @@ function MetricCard({ icon, title, value, helper, tone = 'blue' }) {
 
   return (
     <article className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
-      <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${toneClassMap[tone] || toneClassMap.blue}`}>
+      <div
+        className={`flex h-12 w-12 items-center justify-center rounded-2xl ${
+          toneClassMap[tone] || toneClassMap.blue
+        }`}
+      >
         {icon}
       </div>
       <p className="mt-4 text-sm font-bold text-slate-500">{title}</p>

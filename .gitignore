@@ -7,6 +7,10 @@ dist/
 dist-ssr/
 **/dist/
 **/dist-ssr/
+build/
+**/build/
+coverage/
+**/coverage/
 
 # Environment files
 .env
@@ -36,6 +40,8 @@ lerna-debug.log*
 # OS / Editor
 .DS_Store
 .idea/
+.gradle/
+**/.gradle/
 .vscode/*
 !.vscode/extensions.json
 *.suo
@@ -46,3 +52,28 @@ lerna-debug.log*
 
 # Local-only config
 *.local
+
+# Temp / exports / local data
+tmp/
+exports/
+*.tmp
+prod_cookies.txt
+audit-cookies.txt
+audit-user.txt
+
+# Android local files
+android/local.properties
+android/.idea/
+android/app/release/
+android/app/build/
+android/build/
+android/release-key.jks
+*.jks
+*.keystore
+*.apk
+*.aab
+
+# Admin temporary build folders
+admin-panel/build-check/
+admin-panel/build-check-admin/
+admin-panel/build-check-admin-2/

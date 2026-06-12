@@ -3,12 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "npm --prefix forntend run build",
+    "build": "npm --prefix frontend run build",
     "build:app": "npm run build && npx cap sync android",
     "android:add": "npx cap add android",
     "android:open": "npx cap open android",
     "dev:backend": "npm --prefix backend run dev",
-    "dev:frontend": "npm --prefix forntend run dev"
+    "dev:frontend": "npm --prefix frontend run dev"
   },
   "dependencies": {
     "@capacitor-community/speech-recognition": "^7.0.1",

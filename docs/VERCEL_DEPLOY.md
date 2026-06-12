@@ -7,7 +7,7 @@
 1. ไปที่ Vercel
 2. กด `Add New Project`
 3. เลือก repo นี้
-4. ให้ `Root Directory` เป็น root ของโปรเจ็กต์นี้ตามเดิม ไม่ต้องเปลี่ยนไปที่ `forntend/`
+4. ให้ `Root Directory` เป็น root ของโปรเจ็กต์นี้ตามเดิม ไม่ต้องเปลี่ยนไปที่ `frontend/`
 
 ## 2. Project Settings
 
@@ -15,12 +15,12 @@
 
 - Framework Preset: `Other`
 - Build Command: `npm run build`
-- Output Directory: `forntend/dist`
+- Output Directory: `frontend/dist`
 - Install Command: เว้นค่า default ได้
 
 หมายเหตุ:
 - ไฟล์ [vercel.json](C:/my-chat-bot/vercel.json) ถูกตั้ง rewrite และ function runtime ไว้แล้ว
-- frontend จะถูก build จาก `forntend/`
+- frontend จะถูก build จาก `frontend/`
 - API จะวิ่งผ่าน `api/[...path].js`
 
 ## 3. Environment Variables

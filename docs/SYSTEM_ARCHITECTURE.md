@@ -39,19 +39,19 @@ flowchart LR
 
 ### Frontend
 
-- [forntend/src/App.jsx](C:/my-chat-bot/forntend/src/App.jsx)
+- [frontend/src/App.jsx](C:/my-chat-bot/frontend/src/App.jsx)
   app shell หลัก, auth flow, navigation, reminders, chat entry, session handling
-- [forntend/src/config.js](C:/my-chat-bot/forntend/src/config.js)
+- [frontend/src/config.js](C:/my-chat-bot/frontend/src/config.js)
   จุดกำหนด `API_URL`
-- [forntend/src/components](C:/my-chat-bot/forntend/src/components)
+- [frontend/src/components](C:/my-chat-bot/frontend/src/components)
   หน้าหลักทั้งหมดของผู้ใช้ เช่น login, register, dashboard, chat, report, profile
-- [forntend/src/utils](C:/my-chat-bot/forntend/src/utils)
+- [frontend/src/utils](C:/my-chat-bot/frontend/src/utils)
   validation และ native notification helper
-- [forntend/src/data](C:/my-chat-bot/forntend/src/data)
+- [frontend/src/data](C:/my-chat-bot/frontend/src/data)
   ชุดหัวข้อและ quick prompts สำหรับ AI
-- [forntend/public/sw.js](C:/my-chat-bot/forntend/public/sw.js)
+- [frontend/public/sw.js](C:/my-chat-bot/frontend/public/sw.js)
   service worker สำหรับ web push ฝั่งเว็บ
-- [forntend/public/manifest.webmanifest](C:/my-chat-bot/forntend/public/manifest.webmanifest)
+- [frontend/public/manifest.webmanifest](C:/my-chat-bot/frontend/public/manifest.webmanifest)
   PWA manifest
 
 ### Backend
@@ -98,7 +98,7 @@ Frontend ถูกสร้างด้วย `React + Vite` และออก�
 - `EditProfilePage`
 - `CategoryDetailPage`
 
-หน้าทั้งหมดถูกควบคุมจาก [App.jsx](C:/my-chat-bot/forntend/src/App.jsx) โดยใช้ state navigation ภายในแอป และ sync กับ browser history เพื่อให้ปุ่ม back บนมือถือทำงานเหมือนแอปจริง
+หน้าทั้งหมดถูกควบคุมจาก [App.jsx](C:/my-chat-bot/frontend/src/App.jsx) โดยใช้ state navigation ภายในแอป และ sync กับ browser history เพื่อให้ปุ่ม back บนมือถือทำงานเหมือนแอปจริง
 
 ### 3.2 Backend Layer
 
@@ -241,7 +241,7 @@ sequenceDiagram
 #### Android APK
 
 - frontend ตรวจว่าเป็น native Android
-- ใช้ [nativeNotifications.js](C:/my-chat-bot/forntend/src/utils/nativeNotifications.js)
+- ใช้ [nativeNotifications.js](C:/my-chat-bot/frontend/src/utils/nativeNotifications.js)
 - schedule ผ่าน `@capacitor/local-notifications`
 - ทำงานบนเครื่องโดยตรง
 
@@ -271,7 +271,7 @@ flow:
 
 ### Web notification path
 
-- [forntend/public/sw.js](C:/my-chat-bot/forntend/public/sw.js)
+- [frontend/public/sw.js](C:/my-chat-bot/frontend/public/sw.js)
 - backend ใช้ `web-push`
 - ต้องมี:
   - `VAPID_SUBJECT`
@@ -281,7 +281,7 @@ flow:
 ### Android notification path
 
 - ใช้ `@capacitor/local-notifications`
-- helper อยู่ที่ [nativeNotifications.js](C:/my-chat-bot/forntend/src/utils/nativeNotifications.js)
+- helper อยู่ที่ [nativeNotifications.js](C:/my-chat-bot/frontend/src/utils/nativeNotifications.js)
 - Android permission ตั้งใน manifest ของ project Android
 
 ## 8. Deployment Architecture
@@ -304,7 +304,7 @@ flowchart LR
 
 ### API URL strategy
 
-- frontend อ่านจาก [forntend/src/config.js](C:/my-chat-bot/forntend/src/config.js)
+- frontend อ่านจาก [frontend/src/config.js](C:/my-chat-bot/frontend/src/config.js)
 - admin panel อ่านจาก [admin-panel/src/config.js](C:/my-chat-bot/admin-panel/src/config.js)
 - production ใช้ `VITE_API_URL`
 
@@ -357,7 +357,7 @@ Android app ไม่ได้มี backend แยกของตัวเอ�
 - admin panel ยังใช้ API เดียวกับระบบหลักและยังไม่มี admin auth เต็มรูปแบบ
 - web notification กับ Android native notification มี 2 เส้นทาง ต้องดูแลให้ messaging สอดคล้องกัน
 - navigation ฝั่งผู้ใช้เป็น app-style state navigation ภายใน React ไม่ได้ใช้ full router
-- project ยังมีโฟลเดอร์ชื่อ `forntend` ที่สะกดต่างจาก `frontend` ซึ่งไม่กระทบการทำงาน แต่ต้องระวังเวลา config/deploy
+- project ใช้โฟลเดอร์ `frontend` เป็นมาตรฐานเดียวกันใน config, deploy, และเอกสาร
 
 ## 13. Recommended Future Evolution
 

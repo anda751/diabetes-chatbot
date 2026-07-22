@@ -165,12 +165,28 @@ function choosePredictedIntent(expectedIntentKey, random) {
 }
 
 function buildQuestionText(intentKey, index, random) {
-  const base = TEMPLATES[intentKey][index % TEMPLATES[intentKey].length];
-  const suffix = CONTEXT_SUFFIXES[(index + Math.floor(random() * CONTEXT_SUFFIXES.length)) % CONTEXT_SUFFIXES.length];
+  random();
+  const openings = ["ช่วยอธิบาย", "ขอคำแนะนำเรื่อง", "อยากทราบวิธีดูแล", "ช่วยบอกแนวทาง", "ขอความรู้เกี่ยวกับ"];
+  const requests = ["แบบเข้าใจง่าย", "สำหรับผู้เริ่มต้น", "พร้อมขั้นตอนปฏิบัติ", "และข้อควรระวัง", "ที่นำไปใช้ได้จริง"];
+  const contexts = ["ในชีวิตประจำวัน", "เมื่ออยู่ที่บ้าน", "ก่อนพบแพทย์", "หลังบันทึกข้อมูลสุขภาพ", "เมื่อมีเวลาจำกัด"];
+  const topics = {
+    greeting: ["การเริ่มดูแลเบาหวาน", "การใช้แอปสุขภาพ", "การวางแผนดูแลตัวเอง", "การติดตามสุขภาพ", "สิ่งที่ควรรู้สำหรับมือใหม่"],
+    food: ["การเลือกอาหารเช้า", "การจัดมื้อกลางวัน", "การเลือกผลไม้", "การวางแผนมื้อเย็น", "การเลือกเครื่องดื่ม"],
+    glucose: ["ค่าน้ำตาลก่อนอาหาร", "ค่าน้ำตาลหลังอาหาร", "ค่าน้ำตาลตอนเช้า", "ภาวะน้ำตาลขึ้นลง", "แนวโน้มค่าน้ำตาล"],
+    symptom: ["อาการเวียนหัว", "อาการมือสั่น", "อาการกระหายน้ำ", "อาการเหนื่อยผิดปกติ", "อาการชาปลายเท้า"],
+    exercise: ["การเดินหลังอาหาร", "การปั่นจักรยาน", "การยืดเหยียด", "การฝึกแรงต้าน", "การออกกำลังตอนเช้า"],
+    medicine: ["การลืมกินยา", "เวลาฉีดอินซูลิน", "ผลข้างเคียงของยา", "การเก็บรักษายา", "การใช้ยาเสริม"],
+    report: ["สรุปค่าน้ำตาลรายวัน", "แนวโน้มรายสัปดาห์", "ค่าก่อนและหลังอาหาร", "ช่วงเวลาที่ผิดปกติ", "การเตรียมข้อมูลพบแพทย์"],
+    general: ["การดูแลเบาหวาน", "การป้องกันภาวะแทรกซ้อน", "การนอนหลับ", "การจัดการความเครียด", "การเตรียมตรวจสุขภาพ"],
+  };
+  const topic = topics[intentKey][Math.floor(index / 25) % topics[intentKey].length];
+  const opening = openings[Math.floor(index / 25) % openings.length];
+  const request = requests[Math.floor(index / 5) % requests.length];
+  const context = contexts[index % contexts.length];
   const glucoseValue = 70 + ((index * 17 + intentKey.length * 3) % 181);
   const dayOffset = (index * 3 + intentKey.length) % 31 + 1;
   const scenario = `${intentKey}-${index + 1}`;
-  return `${base}${suffix} [scenario ${scenario}; glucose ${glucoseValue} mg/dL; day ${dayOffset}]`;
+  return `${opening}${topic}${request}${context} ควรทำอย่างไร [scenario ${scenario}; glucose ${glucoseValue} mg/dL; day ${dayOffset}]`;
 }
 
 function buildRows(total = 1000) {

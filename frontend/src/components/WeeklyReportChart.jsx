@@ -57,7 +57,7 @@ export default function WeeklyReportChart({ chartData }) {
       <LineChart data={chartData}>
         <CartesianGrid strokeDasharray="8 8" vertical={false} stroke="#F1F5F9" />
         <XAxis
-          dataKey="displayDate"
+          dataKey="displayLabel"
           axisLine={false}
           tickLine={false}
           tick={{ fontSize: 11, fill: '#94A3B8' }}

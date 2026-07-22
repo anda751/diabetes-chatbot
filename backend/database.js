@@ -176,6 +176,50 @@ export async function initDB() {
     )
   `);
 
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS knowledge_entries (
+      id BIGSERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      intent_key TEXT DEFAULT 'general',
+      tags TEXT DEFAULT '',
+      is_enabled BOOLEAN DEFAULT TRUE,
+      sort_order INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await db.exec(`
+    ALTER TABLE knowledge_entries
+    ADD COLUMN IF NOT EXISTS intent_key TEXT DEFAULT 'general'
+  `);
+
+  await db.exec(`
+    ALTER TABLE knowledge_entries
+    ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT ''
+  `);
+
+  await db.exec(`
+    ALTER TABLE knowledge_entries
+    ADD COLUMN IF NOT EXISTS is_enabled BOOLEAN DEFAULT TRUE
+  `);
+
+  await db.exec(`
+    ALTER TABLE knowledge_entries
+    ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0
+  `);
+
+  await db.exec(`
+    ALTER TABLE knowledge_entries
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()
+  `);
+
+  await db.exec(`
+    ALTER TABLE knowledge_entries
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
+  `);
+
   console.log("Database Ready: Connected to Postgres and ensured tables exist.");
   return db;
 }

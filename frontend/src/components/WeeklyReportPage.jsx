@@ -11,6 +11,7 @@ import {
   TrendingUp,
   X,
 } from 'lucide-react';
+import { dedupeGlucoseHistoryByLatestPeriod, getGlucoseMealName } from '../utils/glucoseHistory';
 
 const WeeklyReportChart = lazy(() => import('./WeeklyReportChart'));
 
@@ -147,7 +148,7 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
       return diffDays < filterDays && diffDays >= 0;
     });
 
-    return [...filtered]
+    return dedupeGlucoseHistoryByLatestPeriod(filtered)
       .sort((a, b) => getRecordDate(a)?.getTime() - getRecordDate(b)?.getTime())
       .map((item) => {
         const itemDate = getRecordDate(item);
@@ -158,12 +159,17 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
                 month: '2-digit',
               })
             : '-';
+        const displayTime = getDisplayTime(item);
+        const mealName = getGlucoseMealName(item);
 
         return {
           ...item,
           beforeValue: item.phase === 'before' ? item.value : null,
           afterValue: item.phase === 'after' ? item.value : null,
           displayDate,
+          displayLabel: `${displayDate}${displayTime !== '-' ? ` · ${displayTime}` : ''}${mealName ? ` · ${mealName}` : ''} · ${
+            item.phase === 'before' ? 'ก่อนอาหาร' : 'หลังอาหาร'
+          }`,
         };
       });
   }, [customRange, filterDays, glucoseHistory]);
@@ -458,6 +464,7 @@ export default function WeeklyReportPage({ onBack, glucoseHistory = [], onConsul
                         </p>
                         <p className="text-xs font-semibold text-slate-500">
                           {item.phase === 'before' ? 'ก่อนอาหาร' : 'หลังอาหาร'}
+                          {getGlucoseMealName(item) ? ` · ${getGlucoseMealName(item)}` : ''}
                         </p>
                       </div>
                     </div>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, MessageCircle, Sparkles } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Clock3, MessageCircle, Sparkles } from 'lucide-react';
 import { API_URL } from '../config';
 import { CATEGORY_LABEL_TO_KEY, CATEGORY_TOPICS } from '../data/aiTopics';
 
@@ -46,12 +46,28 @@ const mergeQuestions = (popularQuestions, fallbackQuestions) => {
   return merged.slice(0, 5);
 };
 
+const formatThaiDateTime = (value) => {
+  if (!value) return '';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  return date.toLocaleString('th-TH', {
+    day: '2-digit',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
 export default function CategoryDetailPage({ category, onBack, onSelectChat }) {
   const topicKey = getTopicKey(category);
   const data = CATEGORY_TOPICS[topicKey] || CATEGORY_TOPICS.report;
   const Icon = data.icon;
   const [popularQuestions, setPopularQuestions] = useState([]);
+  const [myQuestions, setMyQuestions] = useState([]);
   const [isLoadingPopular, setIsLoadingPopular] = useState(true);
+  const [isLoadingMyQuestions, setIsLoadingMyQuestions] = useState(true);
 
   useEffect(() => {
     let isCancelled = false;
@@ -94,6 +110,58 @@ export default function CategoryDetailPage({ category, onBack, onSelectChat }) {
     };
 
     fetchPopularQuestions();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [topicKey]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const fetchMyQuestions = async () => {
+      setIsLoadingMyQuestions(true);
+
+      try {
+        const response = await fetch(
+          `${API_URL}/questions/history?category=${encodeURIComponent(topicKey)}&limit=5`,
+          {
+            credentials: 'include',
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch user question history: ${response.status}`);
+        }
+
+        const payload = await response.json();
+        const nextQuestions = Array.isArray(payload?.questions)
+          ? payload.questions
+              .map((item) => ({
+                questionText: String(item?.questionText || item?.question_text || '').trim(),
+                intentKey: String(item?.intentKey || item?.intent_key || '').trim(),
+                count: Number(item?.count || 0),
+                updatedAt: item?.updatedAt || item?.updated_at || '',
+              }))
+              .filter((item) => isFriendlyQuestion(item.questionText))
+          : [];
+
+        if (!isCancelled) {
+          setMyQuestions(nextQuestions);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          console.warn('User question history fetch failed:', error);
+          setMyQuestions([]);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingMyQuestions(false);
+        }
+      }
+    };
+
+    fetchMyQuestions();
 
     return () => {
       isCancelled = true;
@@ -162,6 +230,49 @@ export default function CategoryDetailPage({ category, onBack, onSelectChat }) {
             </div>
           </button>
         ))}
+
+        <div className="rounded-[1.5rem] border border-slate-100 bg-white p-4 shadow-sm">
+          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.2em] text-slate-400">
+            <Clock3 size={13} />
+            คำถามของฉันในหมวดนี้
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            ดูย้อนกลับได้ว่าคุณเคยถามอะไรไว้ในหมวดนี้บ้าง แยกตามบัญชีผู้ใช้ของคุณเอง
+          </p>
+
+          {isLoadingMyQuestions ? (
+            <div className="mt-4 rounded-[1.25rem] border border-dashed border-slate-200 p-4 text-sm font-semibold text-slate-400">
+              กำลังโหลดประวัติคำถามของคุณ...
+            </div>
+          ) : myQuestions.length > 0 ? (
+            <div className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1 custom-scrollbar">
+              {myQuestions.map((item) => (
+                <button
+                  key={`${item.intentKey}-${item.questionText}`}
+                  onClick={() => onSelectChat(item.questionText)}
+                  className="touch-target w-full rounded-[1.25rem] border border-slate-100 bg-slate-50 p-4 text-left transition hover:border-blue-200 hover:bg-blue-50"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className={`${data.color} mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-white`}>
+                      <MessageCircle size={16} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold leading-6 text-slate-700">{item.questionText}</p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        ถามไว้ {item.count > 1 ? `${item.count} ครั้ง` : '1 ครั้ง'}
+                        {formatThaiDateTime(item.updatedAt) ? ` · ล่าสุด ${formatThaiDateTime(item.updatedAt)}` : ''}
+                      </p>
+                    </div>
+                  </div>
+                  </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-4 rounded-[1.25rem] border border-dashed border-slate-200 p-4 text-sm font-semibold text-slate-400">
+              ยังไม่มีคำถามของคุณในหมวดนี้ ลองถามสักครั้งแล้วจะเห็นประวัติที่นี่
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="app-bottom-docked bg-slate-50 px-5 pt-2">

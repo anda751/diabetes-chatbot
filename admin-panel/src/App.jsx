@@ -1,9 +1,11 @@
-import React, { Suspense, lazy, useEffect, useEffectEvent, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useEffectEvent, useMemo, useState } from 'react';
 import {
   Activity,
   BarChart3,
   ClipboardList,
+  BookOpen,
   Download,
+  Edit3,
   LayoutDashboard,
   LockKeyhole,
   LogOut,
@@ -13,7 +15,12 @@ import {
   ShieldCheck,
   Siren,
   Stethoscope,
+  Save,
+  ToggleLeft,
+  ToggleRight,
+  Trash2,
   Users,
+  X,
 } from 'lucide-react';
 import { API_URL } from './config';
 
@@ -28,6 +35,10 @@ const NAV_ITEMS = [
   { id: 'quality', label: 'คุณภาพ AI', icon: ShieldCheck },
   { id: 'health', label: 'สถานะระบบ', icon: Stethoscope },
   { id: 'table', label: 'ตารางข้อมูล', icon: ClipboardList },
+  { id: 'users', label: 'ดูผู้ใช้', icon: Users },
+  { id: 'records', label: 'ค้นหารายการ', icon: ClipboardList },
+  { id: 'anomalies', label: 'แจ้งเตือนผิดปกติ', icon: Siren },
+  { id: 'knowledge', label: 'คลังความรู้', icon: BookOpen },
 ];
 
 function formatThaiDateTime(value) {
@@ -300,11 +311,26 @@ function App() {
         throw new Error('ช่วงวันที่ไม่ถูกต้อง');
       }
 
-      const queryString = buildAdminQueryString(normalizedRange);
-      const exportPath =
-        activeView === 'quality' ? '/admin/export/fallbacks.csv' : '/admin/export/questions.csv';
+      const query = new URLSearchParams(buildAdminQueryString(normalizedRange).slice(1));
+      if ((activeView === 'users' || activeView === 'records') && search.trim()) {
+        query.set('search', search.trim());
+      }
 
-      const response = await fetch(`${API_URL}${exportPath}${queryString}`, {
+      const exportPathMap = {
+        quality: '/admin/export/fallbacks.csv',
+        knowledge: '/admin/export/knowledge.csv',
+        users: '/admin/export/users.csv',
+        records: '/admin/export/records.csv',
+        anomalies: '/admin/export/anomalies.csv',
+        overview: '/admin/export/questions.csv',
+        analytics: '/admin/export/questions.csv',
+        popular: '/admin/export/questions.csv',
+        health: '/admin/export/questions.csv',
+        table: '/admin/export/questions.csv',
+      };
+      const exportPath = exportPathMap[activeView] || '/admin/export/questions.csv';
+
+      const response = await fetch(`${API_URL}${exportPath}${query.toString() ? `?${query.toString()}` : ''}`, {
         credentials: 'include',
       });
 
@@ -320,7 +346,14 @@ function App() {
       }
 
       const blob = await response.blob();
-      const filename = activeView === 'quality' ? 'admin-fallbacks.csv' : 'admin-questions.csv';
+      const filenameMap = {
+        quality: 'admin-fallbacks.csv',
+        knowledge: 'admin-knowledge.csv',
+        users: 'admin-users.csv',
+        records: 'admin-records.csv',
+        anomalies: 'admin-anomalies.csv',
+      };
+      const filename = filenameMap[activeView] || 'admin-questions.csv';
       downloadBlob(blob, filename);
     } catch (exportError) {
       console.error('Export admin data error:', exportError);
@@ -434,7 +467,13 @@ function App() {
             updatedAt={dashboardData.updatedAt}
             onRefresh={fetchDashboardData}
             onExport={handleExport}
-            exportLabel={activeView === 'quality' ? 'Export Fallback CSV' : 'Export Questions CSV'}
+            exportLabel={
+              activeView === 'quality'
+                ? 'Export Fallback CSV'
+                : activeView === 'knowledge'
+                  ? 'Export Knowledge CSV'
+                  : 'Export Questions CSV'
+            }
           />
 
           {activeView === 'overview' && (
@@ -455,6 +494,18 @@ function App() {
           {activeView === 'quality' && <QualityView quality={dashboardData.quality} />}
 
           {activeView === 'health' && <HealthView health={dashboardData.health} />}
+
+          {activeView === 'knowledge' && <KnowledgeView search={search} />}
+
+          {activeView === 'users' && <UsersView search={search} />}
+
+          {activeView === 'records' && (
+            <RecordsView search={search} dateRange={dateRange} />
+          )}
+
+          {activeView === 'anomalies' && (
+            <AnomaliesView search={search} dateRange={dateRange} />
+          )}
 
           {activeView === 'table' && (
             <QuestionTableView questions={filteredQuestions} search={search} />
@@ -799,6 +850,925 @@ function PopularQuestionsView({ questions }) {
         description="ใช้ดูคำถามจริงที่ผู้ใช้พิมพ์เข้ามา และควรนำไปปรับ quick prompts หรือ fallback ต่อ"
       >
         <PopularQuestionList questions={questions} />
+      </Panel>
+    </section>
+  );
+}
+
+function KnowledgeView({ search }) {
+  const knowledgeIntentOptions = [
+    { value: 'general', label: 'ทั่วไป' },
+    { value: 'greeting', label: 'ทักทาย' },
+    { value: 'food', label: 'อาหาร' },
+    { value: 'glucose', label: 'น้ำตาล' },
+    { value: 'symptom', label: 'อาการ' },
+    { value: 'exercise', label: 'ออกกำลังกาย' },
+    { value: 'medicine', label: 'ยา' },
+    { value: 'report', label: 'รายงาน' },
+  ];
+
+  const emptyForm = {
+    title: '',
+    content: '',
+    intentKey: 'general',
+    tags: '',
+    sortOrder: '0',
+    isEnabled: true,
+  };
+
+  const [items, setItems] = useState([]);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState(emptyForm);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const loadKnowledge = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_URL}/admin/knowledge`, {
+        credentials: 'include',
+      });
+
+      if (response.status === 401) {
+        throw new Error('session_expired');
+      }
+
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error || 'โหลดคลังความรู้ไม่สำเร็จ');
+      }
+
+      setItems(Array.isArray(payload?.items) ? payload.items : []);
+    } catch (fetchError) {
+      setError(fetchError.message === 'session_expired' ? 'เซสชันหมดอายุ โปรดเข้าสู่ระบบใหม่' : fetchError.message);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadKnowledge();
+  }, [loadKnowledge]);
+
+  const filteredItems = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) return items;
+
+    return items.filter((item) => {
+      const title = String(item.title || '').toLowerCase();
+      const content = String(item.content || '').toLowerCase();
+      const tags = String(item.tags || '').toLowerCase();
+      const intentKey = String(item.intentKey || '').toLowerCase();
+      return (
+        title.includes(keyword) ||
+        content.includes(keyword) ||
+        tags.includes(keyword) ||
+        intentKey.includes(keyword)
+      );
+    });
+  }, [items, search]);
+
+  const resetForm = () => {
+    setForm(emptyForm);
+    setEditingId(null);
+  };
+
+  const startEdit = (item) => {
+    setEditingId(item.id);
+    setForm({
+      title: item.title || '',
+      content: item.content || '',
+      intentKey: item.intentKey || 'general',
+      tags: item.tags || '',
+      sortOrder: String(item.sortOrder ?? 0),
+      isEnabled: item.isEnabled !== false,
+    });
+    setMessage('');
+    setError('');
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const payload = {
+        title: form.title.trim(),
+        content: form.content.trim(),
+        intentKey: form.intentKey,
+        tags: form.tags.trim(),
+        sortOrder: Number.parseInt(form.sortOrder, 10) || 0,
+        isEnabled: form.isEnabled,
+      };
+
+      const response = await fetch(
+        editingId ? `${API_URL}/admin/knowledge/${editingId}` : `${API_URL}/admin/knowledge`,
+        {
+          method: editingId ? 'PATCH' : 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || 'บันทึกความรู้ไม่สำเร็จ');
+      }
+
+      setMessage(editingId ? 'แก้ไขความรู้เรียบร้อยแล้ว' : 'เพิ่มความรู้ใหม่เรียบร้อยแล้ว');
+      resetForm();
+      await loadKnowledge();
+    } catch (submitError) {
+      setError(submitError.message || 'บันทึกความรู้ไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggle = async (item) => {
+    setSaving(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const response = await fetch(`${API_URL}/admin/knowledge/${item.id}`, {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ isEnabled: !item.isEnabled }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || 'อัปเดตสถานะความรู้ไม่สำเร็จ');
+      }
+
+      setMessage(item.isEnabled ? 'ปิดใช้งานความรู้แล้ว' : 'เปิดใช้งานความรู้แล้ว');
+      await loadKnowledge();
+    } catch (toggleError) {
+      setError(toggleError.message || 'อัปเดตสถานะความรู้ไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (item) => {
+    if (!window.confirm(`ลบความรู้ "${item.title}" ใช่ไหม?`)) return;
+
+    setSaving(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const response = await fetch(`${API_URL}/admin/knowledge/${item.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || 'ลบความรู้ไม่สำเร็จ');
+      }
+
+      if (editingId === item.id) {
+        resetForm();
+      }
+
+      setMessage('ลบความรู้เรียบร้อยแล้ว');
+      await loadKnowledge();
+    } catch (deleteError) {
+      setError(deleteError.message || 'ลบความรู้ไม่สำเร็จ');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="mt-7 grid grid-cols-[0.9fr_1.1fr] gap-6">
+      <Panel
+        title={editingId ? 'แก้ไขความรู้' : 'เพิ่มความรู้ใหม่'}
+        description="เพิ่มข้อมูลหรือแนวทางใหม่ให้แชทบอทนำไปใช้ตอบได้จริง"
+      >
+        <form className="space-y-4" onSubmit={handleSubmit}>
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">หัวข้อ</span>
+            <input
+              value={form.title}
+              onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
+              className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-medium text-slate-800 outline-none transition focus:border-sky-400"
+              placeholder="เช่น วิธีดูแลน้ำตาลหลังอาหาร"
+            />
+          </label>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">หมวด</span>
+              <select
+                value={form.intentKey}
+                onChange={(event) => setForm((prev) => ({ ...prev, intentKey: event.target.value }))}
+                className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-medium text-slate-800 outline-none transition focus:border-sky-400"
+              >
+                {knowledgeIntentOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-sm font-semibold text-slate-700">ลำดับ</span>
+              <input
+                type="number"
+                value={form.sortOrder}
+                onChange={(event) => setForm((prev) => ({ ...prev, sortOrder: event.target.value }))}
+                className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-medium text-slate-800 outline-none transition focus:border-sky-400"
+                min="0"
+                step="1"
+              />
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">แท็ก</span>
+            <input
+              value={form.tags}
+              onChange={(event) => setForm((prev) => ({ ...prev, tags: event.target.value }))}
+              className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-medium text-slate-800 outline-none transition focus:border-sky-400"
+              placeholder="เช่น น้ำตาล, มื้อเช้า, คำแนะนำ"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-semibold text-slate-700">เนื้อหา</span>
+            <textarea
+              value={form.content}
+              onChange={(event) => setForm((prev) => ({ ...prev, content: event.target.value }))}
+              rows={8}
+              className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium leading-6 text-slate-800 outline-none transition focus:border-sky-400"
+              placeholder="ใส่ความรู้ คำแนะนำ หรือข้อมูลที่อยากให้บอทจำและนำไปตอบ"
+            />
+          </label>
+
+          <label className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">เปิดใช้งาน</p>
+              <p className="text-xs text-slate-500">ถ้าปิดไว้ บอทจะไม่เอาความรู้นี้ไปใช้</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setForm((prev) => ({ ...prev, isEnabled: !prev.isEnabled }))}
+              className="text-slate-700"
+            >
+              {form.isEnabled ? <ToggleRight size={34} className="text-emerald-600" /> : <ToggleLeft size={34} className="text-slate-400" />}
+            </button>
+          </label>
+
+          {message ? (
+            <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+              {message}
+            </div>
+          ) : null}
+
+          {error ? (
+            <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+              {error}
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex h-12 items-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+            >
+              <Save size={17} />
+              {saving ? 'กำลังบันทึก...' : editingId ? 'บันทึกการแก้ไข' : 'เพิ่มความรู้'}
+            </button>
+
+            {editingId ? (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="inline-flex h-12 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              >
+                <X size={17} />
+                ยกเลิกแก้ไข
+              </button>
+            ) : null}
+          </div>
+        </form>
+      </Panel>
+
+      <Panel
+        title="รายการความรู้ทั้งหมด"
+        description={`ทั้งหมด ${filteredItems.length} รายการ${search ? ' จากผลค้นหา' : ''}`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-sm text-slate-500">
+            แชทบอทจะนำรายการที่เปิดใช้งานและตรงหมวดไปใช้ประกอบการตอบ
+          </div>
+          <button
+            onClick={() => void loadKnowledge()}
+            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            type="button"
+          >
+            <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
+            รีเฟรช
+          </button>
+        </div>
+
+        <div className="mt-4 max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+          {loading ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm font-semibold text-slate-500">
+              กำลังโหลดคลังความรู้...
+            </div>
+          ) : filteredItems.length > 0 ? (
+            filteredItems.map((item) => (
+              <article
+                key={item.id}
+                className="rounded-3xl border border-slate-100 bg-slate-50 px-4 py-4"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600 shadow-sm">
+                        {item.intentKey}
+                      </span>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${item.isEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>
+                        {item.isEnabled ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}
+                      </span>
+                      <span className="rounded-full bg-slate-900 px-2.5 py-1 text-xs font-bold text-white">
+                        ลำดับ {item.sortOrder || 0}
+                      </span>
+                    </div>
+
+                    <h4 className="mt-3 text-base font-black text-slate-900">{item.title}</h4>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+                      {item.content}
+                    </p>
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                      {item.tags ? <span>แท็ก: {item.tags}</span> : <span>ไม่มีแท็ก</span>}
+                      <span>อัปเดต {formatThaiDateTime(item.updatedAt)}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex shrink-0 flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => startEdit(item)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      <Edit3 size={14} />
+                      แก้ไข
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleToggle(item)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50"
+                    >
+                      {item.isEnabled ? <ToggleLeft size={14} /> : <ToggleRight size={14} />}
+                      {item.isEnabled ? 'ปิด' : 'เปิด'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete(item)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-600 transition hover:bg-rose-50"
+                    >
+                      <Trash2 size={14} />
+                      ลบ
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))
+          ) : (
+            <EmptyState text={search ? 'ไม่พบความรู้ตามคำค้นหา' : 'ยังไม่มีคลังความรู้ เพิ่มรายการแรกได้เลย'} />
+          )}
+        </div>
+      </Panel>
+    </section>
+  );
+}
+
+function UsersView({ search }) {
+  const [items, setItems] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [selectedUserId, setSelectedUserId] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadUsers = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_URL}/admin/users?search=${encodeURIComponent(search.trim())}`, {
+        credentials: 'include',
+      });
+      if (response.status === 401) throw new Error('session_expired');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || 'ดึงรายชื่อผู้ใช้ไม่สำเร็จ');
+      setItems(Array.isArray(payload?.items) ? payload.items : []);
+      setTotal(Number(payload?.total) || 0);
+    } catch (fetchError) {
+      setError(fetchError.message === 'session_expired' ? 'เซสชันหมดอายุ โปรดเข้าสู่ระบบใหม่' : fetchError.message);
+      setItems([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [search]);
+
+  const loadDetail = useCallback(async (userId) => {
+    setSelectedUserId(userId);
+    setDetailLoading(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_URL}/admin/users/${userId}`, {
+        credentials: 'include',
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'ดึงรายละเอียดผู้ใช้ไม่สำเร็จ');
+      setDetail(payload);
+    } catch (fetchError) {
+      setDetail(null);
+      setError(fetchError.message || 'ดึงรายละเอียดผู้ใช้ไม่สำเร็จ');
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadUsers();
+  }, [loadUsers]);
+
+  useEffect(() => {
+    if (!selectedUserId && items.length) {
+      void loadDetail(items[0].id);
+    }
+  }, [items, selectedUserId, loadDetail]);
+
+  const filteredItems = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) return items;
+    return items.filter((item) => {
+      const haystack = [item.username, item.name, item.stage, item.bmi, item.lastActivityAt]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [items, search]);
+
+  const selectedSummary = detail?.user || null;
+
+  return (
+    <section className="mt-7 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+      <Panel
+        title="ผู้ใช้ทั้งหมด"
+        description={`แสดง ${filteredItems.length} จาก ${total} บัญชี${search ? ' ที่ค้นพบ' : ''}`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-slate-500">คลิกรายชื่อเพื่อดูประวัติและสถิติแบบรายคน</p>
+          <button
+            type="button"
+            onClick={() => void loadUsers()}
+            className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
+            รีเฟรช
+          </button>
+        </div>
+
+        <div className="mt-4 max-h-[72vh] space-y-3 overflow-y-auto pr-1">
+          {loading ? (
+            <EmptyState text="กำลังโหลดรายชื่อผู้ใช้..." />
+          ) : filteredItems.length ? (
+            filteredItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => void loadDetail(item.id)}
+                className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
+                  selectedUserId === item.id
+                    ? 'border-sky-300 bg-sky-50'
+                    : 'border-slate-100 bg-slate-50 hover:bg-white'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-black text-slate-900">{item.name}</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-500">
+                      @{item.username} • stage {item.stage} • BMI {item.bmi || '-'}
+                    </p>
+                    <p className="mt-2 text-xs text-slate-400">
+                      ล่าสุด: {formatThaiDateTime(item.lastActivityAt)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-bold text-slate-500">น้ำตาล</p>
+                    <p className="text-sm font-black text-slate-900">{item.glucoseCount}</p>
+                    <p className="mt-2 text-xs font-bold text-slate-500">ถาม</p>
+                    <p className="text-sm font-black text-slate-900">{item.chatCount}</p>
+                  </div>
+                </div>
+              </button>
+            ))
+          ) : (
+            <EmptyState text={search ? 'ไม่พบผู้ใช้ตามคำค้นหา' : 'ยังไม่มีผู้ใช้ให้แสดง'} />
+          )}
+        </div>
+      </Panel>
+
+      <Panel
+        title="รายละเอียดผู้ใช้"
+        description="ดูประวัติ น้ำตาล คำถาม และข้อมูลที่เกี่ยวข้องของคนนี้"
+      >
+        {detailLoading ? (
+          <EmptyState text="กำลังโหลดรายละเอียด..." />
+        ) : selectedSummary ? (
+          <div className="space-y-5">
+            <div className="grid gap-3 md:grid-cols-2">
+              <InsightCard title="ชื่อ" value={selectedSummary.name} helper={`@${selectedSummary.username}`} />
+              <InsightCard title="สถานะ" value={`stage ${selectedSummary.stage}`} helper={`BMI ${selectedSummary.bmi || '-'} | น้ำหนัก ${selectedSummary.weight || '-'} | ส่วนสูง ${selectedSummary.height || '-'}`} />
+              <InsightCard title="น้ำตาลล่าสุด" value={selectedSummary.lastGlucoseValue != null ? `${selectedSummary.lastGlucoseValue} mg/dL` : '-'} helper={formatThaiDateTime(selectedSummary.lastGlucoseAt)} />
+              <InsightCard title="คำถามล่าสุด" value={selectedSummary.chatCount || 0} helper={formatThaiDateTime(selectedSummary.lastQuestionAt)} />
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              <div>
+                <p className="text-sm font-black text-slate-900">ประวัติน้ำตาลล่าสุด</p>
+                <div className="mt-3 space-y-2">
+                  {detail?.recentGlucose?.length ? detail.recentGlucose.map((item) => (
+                    <div key={item.id} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-bold text-slate-800">{item.value} mg/dL</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {item.phase === 'before' ? 'ก่อนอาหาร' : item.phase === 'after' ? 'หลังอาหาร' : item.phase || '-'} • {item.date || '-'} {item.time || ''}
+                          </p>
+                        </div>
+                        <span className="text-xs text-slate-400">{formatThaiDateTime(item.recordedAt)}</span>
+                      </div>
+                    </div>
+                  )) : <EmptyState text="ยังไม่มีประวัติน้ำตาล" />}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-black text-slate-900">ประวัติคำถามล่าสุด</p>
+                <div className="mt-3 space-y-2">
+                  {detail?.recentQuestions?.length ? detail.recentQuestions.map((item) => (
+                    <div key={item.id} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                      <p className="text-sm font-bold leading-6 text-slate-800">{item.questionText}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                        <span className="rounded-full bg-white px-2.5 py-1 font-bold">{item.intentKey}</span>
+                        {item.usedFallback ? <span className="rounded-full bg-amber-100 px-2.5 py-1 font-bold text-amber-700">fallback</span> : null}
+                        <span>{item.responseModel}</span>
+                        <span>{formatThaiDateTime(item.createdAt)}</span>
+                      </div>
+                    </div>
+                  )) : <EmptyState text="ยังไม่มีประวัติคำถาม" />}
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm font-black text-slate-900">การแจ้งเตือนมื้ออาหาร</p>
+              <div className="mt-3 space-y-2">
+                {detail?.reminders?.length ? detail.reminders.map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-slate-800">{item.label}</p>
+                        <p className="mt-1 text-xs text-slate-500">{item.reminderKey} • {item.time}</p>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${item.isEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
+                        {item.isEnabled ? 'เปิด' : 'ปิด'}
+                      </span>
+                    </div>
+                  </div>
+                )) : <EmptyState text="ยังไม่มีการแจ้งเตือน" />}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <EmptyState text="เลือกผู้ใช้จากฝั่งซ้ายเพื่อดูรายละเอียด" />
+        )}
+      </Panel>
+    </section>
+  );
+}
+
+function RecordsView({ search, dateRange }) {
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [phaseFilter, setPhaseFilter] = useState('all');
+  const [userFilter, setUserFilter] = useState('');
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const loadRecords = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      params.set('type', typeFilter);
+      params.set('search', search.trim());
+      if (userFilter.trim()) params.set('userId', userFilter.trim());
+      if (phaseFilter !== 'all') params.set('phase', phaseFilter);
+      if (dateRange?.startDate) params.set('startDate', dateRange.startDate);
+      if (dateRange?.endDate) params.set('endDate', dateRange.endDate);
+
+      const response = await fetch(`${API_URL}/admin/records?${params.toString()}`, {
+        credentials: 'include',
+      });
+      if (response.status === 401) throw new Error('session_expired');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || 'ดึงรายการบันทึกไม่สำเร็จ');
+      setItems(Array.isArray(payload?.items) ? payload.items : []);
+    } catch (fetchError) {
+      setError(fetchError.message === 'session_expired' ? 'เซสชันหมดอายุ โปรดเข้าสู่ระบบใหม่' : fetchError.message);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [typeFilter, phaseFilter, userFilter, search, dateRange?.startDate, dateRange?.endDate]);
+
+  useEffect(() => {
+    void loadRecords();
+  }, [loadRecords]);
+
+  const handleDelete = async (item) => {
+    if (!window.confirm(`ลบรายการ ${item.title} นี้ใช่ไหม?`)) return;
+    setMessage('');
+    setError('');
+    try {
+      const response = await fetch(`${API_URL}/admin/records/${item.recordType}/${item.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || 'ลบรายการไม่สำเร็จ');
+      setMessage('ลบรายการเรียบร้อยแล้ว');
+      await loadRecords();
+    } catch (deleteError) {
+      setError(deleteError.message || 'ลบรายการไม่สำเร็จ');
+    }
+  };
+
+  const glucoseCount = items.filter((item) => item.recordType === 'glucose').length;
+  const chatCount = items.filter((item) => item.recordType === 'chat').length;
+
+  return (
+    <section className="mt-7 space-y-6">
+      <Panel
+        title="ค้นหาและจัดการ record"
+        description="กรองระดับ record เพื่อไล่ตรวจข้อมูลรายรายการและลบข้อมูลที่ไม่ต้องการได้"
+      >
+        <div className="grid gap-3 lg:grid-cols-[160px_160px_1fr_160px]">
+          <select
+            value={typeFilter}
+            onChange={(event) => setTypeFilter(event.target.value)}
+            className="h-12 rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none"
+          >
+            <option value="all">ทั้งหมด</option>
+            <option value="glucose">น้ำตาล</option>
+            <option value="chat">คำถาม</option>
+          </select>
+          <select
+            value={phaseFilter}
+            onChange={(event) => setPhaseFilter(event.target.value)}
+            className="h-12 rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none"
+          >
+            <option value="all">ทุกช่วง</option>
+            <option value="before">ก่อนอาหาร</option>
+            <option value="after">หลังอาหาร</option>
+          </select>
+          <input
+            value={userFilter}
+            onChange={(event) => setUserFilter(event.target.value)}
+            placeholder="กรองด้วย user id"
+            className="h-12 rounded-2xl border border-slate-200 px-4 text-sm font-semibold text-slate-700 outline-none"
+          />
+          <button
+            type="button"
+            onClick={() => void loadRecords()}
+            className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl bg-slate-900 px-4 text-sm font-bold text-white"
+          >
+            <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
+            โหลดใหม่
+          </button>
+        </div>
+
+        {message ? <div className="mt-4 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{message}</div> : null}
+        {error ? <div className="mt-4 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">{error}</div> : null}
+      </Panel>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricCard icon={<ClipboardList size={20} />} title="record รวม" value={items.length} helper="ผลลัพธ์ที่โหลดจากการค้นหาล่าสุด" tone="indigo" />
+        <MetricCard icon={<Users size={20} />} title="น้ำตาล" value={glucoseCount} helper="รายการบันทึกน้ำตาล" tone="emerald" />
+        <MetricCard icon={<MessageSquareText size={20} />} title="คำถาม" value={chatCount} helper="รายการคำถามจาก user" tone="amber" />
+      </div>
+
+      <Panel
+        title="รายการบันทึก"
+        description={`แสดง ${items.length} รายการ${search ? ' ตามคำค้นหา' : ''}`}
+      >
+        {loading ? (
+          <EmptyState text="กำลังโหลดรายการ..." />
+        ) : items.length ? (
+          <div className="space-y-3">
+            {items.map((item) => (
+              <div key={`${item.recordType}-${item.id}`} className="rounded-3xl border border-slate-100 bg-slate-50 px-4 py-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600 shadow-sm">
+                        {item.recordType}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-400">
+                        @{item.username} • {item.name}
+                      </span>
+                    </div>
+                    <p className="mt-3 text-sm font-black text-slate-900">{item.title}</p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">{item.subtitle}</p>
+                    <p className="mt-2 text-xs text-slate-400">
+                      {formatThaiDateTime(item.recordedAt || item.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {item.recordType === 'glucose' ? (
+                      <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-700">
+                        {item.phase || '-'} • {item.value} mg/dL
+                      </span>
+                    ) : (
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold ${item.usedFallback ? 'bg-amber-100 text-amber-700' : 'bg-sky-100 text-sky-700'}`}>
+                        {item.intentKey || 'general'}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete(item)}
+                      className="inline-flex items-center gap-2 rounded-2xl border border-rose-200 bg-white px-3 py-2 text-xs font-bold text-rose-600 transition hover:bg-rose-50"
+                    >
+                      <Trash2 size={14} />
+                      ลบ
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState text="ไม่พบรายการตามเงื่อนไขที่กรอง" />
+        )}
+      </Panel>
+    </section>
+  );
+}
+
+function AnomaliesView({ search, dateRange }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadAnomalies = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (dateRange?.startDate) params.set('startDate', dateRange.startDate);
+      if (dateRange?.endDate) params.set('endDate', dateRange.endDate);
+      const response = await fetch(`${API_URL}/admin/anomalies?${params.toString()}`, {
+        credentials: 'include',
+      });
+      if (response.status === 401) throw new Error('session_expired');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || 'ดึง anomaly ไม่สำเร็จ');
+      setData(payload);
+    } catch (fetchError) {
+      setError(fetchError.message === 'session_expired' ? 'เซสชันหมดอายุ โปรดเข้าสู่ระบบใหม่' : fetchError.message);
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [dateRange?.startDate, dateRange?.endDate]);
+
+  useEffect(() => {
+    void loadAnomalies();
+  }, [loadAnomalies]);
+
+  const filteredGlucose = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) return data?.glucoseAlerts || [];
+    return (data?.glucoseAlerts || []).filter((item) =>
+      [item.username, item.name, item.phase, item.value, item.severity].join(' ').toLowerCase().includes(keyword)
+    );
+  }, [data?.glucoseAlerts, search]);
+
+  const filteredFallbacks = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) return data?.fallbackAlerts || [];
+    return (data?.fallbackAlerts || []).filter((item) =>
+      [item.username, item.name, item.fallbackCount].join(' ').toLowerCase().includes(keyword)
+    );
+  }, [data?.fallbackAlerts, search]);
+
+  const filteredRepeats = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) return data?.repeatedQuestionAlerts || [];
+    return (data?.repeatedQuestionAlerts || []).filter((item) =>
+      [item.username, item.name, item.questionText, item.questionCount].join(' ').toLowerCase().includes(keyword)
+    );
+  }, [data?.repeatedQuestionAlerts, search]);
+
+  return (
+    <section className="mt-7 space-y-6">
+      <div className="grid gap-4 md:grid-cols-3">
+        <MetricCard icon={<Siren size={20} />} title="น้ำตาลผิดปกติ" value={data?.summary?.glucoseAlerts || 0} helper="ค่าที่สูงหรือต่ำผิดปกติ" tone="amber" />
+        <MetricCard icon={<MessageSquareText size={20} />} title="fallback ผู้ใช้" value={data?.summary?.fallbackUsers || 0} helper="ผู้ใช้ที่ติด fallback ซ้ำ" tone="indigo" />
+        <MetricCard icon={<ClipboardList size={20} />} title="คำถามซ้ำ" value={data?.summary?.repeatedQuestions || 0} helper="คำถามเดิมที่เกิดซ้ำหลายครั้ง" tone="emerald" />
+      </div>
+
+      <Panel
+        title="แจ้งเตือน anomaly"
+        description="เราจัดกลุ่มสัญญาณผิดปกติให้ทีมแอดมินไล่ดูได้ง่ายขึ้น"
+      >
+        {loading ? (
+          <EmptyState text="กำลังโหลด anomaly..." />
+        ) : error ? (
+          <EmptyState text={error} />
+        ) : (
+          <div className="space-y-6">
+            <div>
+              <p className="text-sm font-black text-slate-900">น้ำตาลผิดปกติ</p>
+              <div className="mt-3 space-y-2">
+                {filteredGlucose.length ? filteredGlucose.map((item) => (
+                  <div key={`${item.userId}-${item.id}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-bold text-slate-800">{item.name} (@{item.username})</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {item.phase || '-'} • {item.value} mg/dL • {formatThaiDateTime(item.recordedAt)}
+                        </p>
+                      </div>
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${item.severity === 'high' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {item.severity}
+                      </span>
+                    </div>
+                  </div>
+                )) : <EmptyState text="ยังไม่มีค่าเกิน threshold ในช่วงนี้" />}
+              </div>
+            </div>
+
+            <div className="grid gap-6 xl:grid-cols-2">
+              <div>
+                <p className="text-sm font-black text-slate-900">fallback หนัก</p>
+                <div className="mt-3 space-y-2">
+                  {filteredFallbacks.length ? filteredFallbacks.map((item) => (
+                    <div key={item.userId} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                      <p className="text-sm font-bold text-slate-800">{item.name} (@{item.username})</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        fallback {item.fallbackCount} ครั้ง • ล่าสุด {formatThaiDateTime(item.lastSeenAt)}
+                      </p>
+                    </div>
+                  )) : <EmptyState text="ยังไม่มีผู้ใช้ fallback ซ้ำ" />}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-black text-slate-900">คำถามซ้ำ</p>
+                <div className="mt-3 space-y-2">
+                  {filteredRepeats.length ? filteredRepeats.map((item) => (
+                    <div key={`${item.userId}-${item.questionText}`} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+                      <p className="text-sm font-bold leading-6 text-slate-800">{item.questionText}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {item.name} (@{item.username}) • {item.questionCount} ครั้ง • {formatThaiDateTime(item.lastSeenAt)}
+                      </p>
+                    </div>
+                  )) : <EmptyState text="ยังไม่พบคำถามซ้ำระดับ anomaly" />}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </Panel>
     </section>
   );

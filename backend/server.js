@@ -11,9 +11,17 @@ import { promisify } from "node:util";
 import { GoogleGenAI } from "@google/genai";
 import webpush from "web-push";
 import {
+  exportAdminAnomaliesCsv,
+  exportAdminRecordsCsv,
+  exportAdminUsersCsv,
   exportAdminFallbacksCsv,
+  exportAdminKnowledgeCsv,
   exportAdminQuestionsCsv,
+  getAdminAnomalies,
   getAdminOverview,
+  getAdminRecords,
+  getAdminUserDetail,
+  getAdminUsers,
   getAdminStats,
   getAdminQuality,
 } from "./adminAnalytics.js";
@@ -1139,6 +1147,92 @@ function normalizePopularQuestionCategory(rawCategory) {
   return "report";
 }
 
+const KNOWLEDGE_INTENT_KEYS = new Set([
+  "general",
+  "greeting",
+  "food",
+  "glucose",
+  "symptom",
+  "exercise",
+  "medicine",
+  "report",
+]);
+
+function normalizeKnowledgeIntent(rawIntent) {
+  const intent = normalizeText(rawIntent).toLowerCase();
+  return KNOWLEDGE_INTENT_KEYS.has(intent) ? intent : "general";
+}
+
+function formatKnowledgeEntry(entry) {
+  return {
+    id: Number(entry?.id) || 0,
+    title: normalizeText(entry?.title),
+    content: normalizeText(entry?.content),
+    tags: normalizeText(entry?.tags),
+    intentKey: normalizeKnowledgeIntent(entry?.intent_key || entry?.intentKey),
+    isEnabled: Boolean(entry?.is_enabled ?? entry?.isEnabled),
+    sortOrder: Number(entry?.sort_order ?? entry?.sortOrder) || 0,
+    createdAt: entry?.created_at || entry?.createdAt || null,
+    updatedAt: entry?.updated_at || entry?.updatedAt || null,
+  };
+}
+
+async function getRelevantKnowledgeEntries(intentKey, limit = 4) {
+  const normalizedIntent = normalizeKnowledgeIntent(intentKey);
+  const limitValue = Number.isFinite(Number(limit)) ? Math.min(Math.max(Number(limit), 1), 10) : 4;
+
+  const entries = await db.all(
+    `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at
+     FROM knowledge_entries
+     WHERE is_enabled = TRUE
+       AND (intent_key = ? OR intent_key = 'general')
+     ORDER BY
+       CASE
+         WHEN intent_key = ? THEN 0
+         WHEN intent_key = 'general' THEN 1
+         ELSE 2
+       END,
+       sort_order DESC,
+       updated_at DESC,
+       id DESC
+     LIMIT ?`,
+    [normalizedIntent, normalizedIntent, limitValue]
+  );
+
+  return entries.map(formatKnowledgeEntry);
+}
+
+function buildKnowledgeContextText(entries = []) {
+  const cleanEntries = Array.isArray(entries)
+    ? entries.filter((entry) => normalizeText(entry?.content) || normalizeText(entry?.title))
+    : [];
+
+  if (!cleanEntries.length) return "";
+
+  return cleanEntries
+    .map((entry, index) => {
+      const title = normalizeText(entry.title) || `ความรู้ที่ ${index + 1}`;
+      const content = normalizeText(entry.content);
+      const tags = normalizeText(entry.tags);
+      const tagText = tags ? ` [tags: ${tags}]` : "";
+      return `${index + 1}. ${title}${tagText}\n   ${content}`;
+    })
+    .join("\n");
+}
+
+function validateKnowledgePayload(payload) {
+  if (!normalizeText(payload?.title)) return "กรุณาระบุหัวข้อความรู้";
+  if (!normalizeText(payload?.content)) return "กรุณาระบุเนื้อหาความรู้";
+
+  if (normalizeText(payload?.title).length > 120) return "หัวข้อความรู้ควรยาวไม่เกิน 120 ตัวอักษร";
+  if (normalizeText(payload?.content).length > 3000) return "เนื้อหาความรู้ควรยาวไม่เกิน 3000 ตัวอักษร";
+  if (!KNOWLEDGE_INTENT_KEYS.has(normalizeKnowledgeIntent(payload?.intentKey))) {
+    return "หมวดความรู้ไม่ถูกต้อง";
+  }
+
+  return "";
+}
+
 function getIntentDisplayLabel(intentKey) {
   return INTENT_DISPLAY_LABELS[intentKey] || "คำถามทั่วไป";
 }
@@ -1232,15 +1326,19 @@ function buildIntentFallbackResponse({ intent, lastGlucose }) {
   return baseText;
 }
 
-function buildDiabetesChatPrompt({ user, lastGlucose, message, intent }) {
+function buildDiabetesChatPrompt({ user, lastGlucose, message, intent, knowledgeEntries = [] }) {
   const glucoseText = lastGlucose?.value
     ? `${lastGlucose.value} mg/dL (${lastGlucose.phase || "ไม่ระบุช่วงเวลา"})`
     : "ยังไม่มีข้อมูล";
+  const knowledgeText = buildKnowledgeContextText(knowledgeEntries);
 
   return `
 คุณคือผู้ช่วยสุขภาพภาษาไทยสำหรับผู้ป่วยเบาหวาน ชื่อ "หมอ AI"
 ตอบด้วยน้ำเสียงสุภาพ อบอุ่น อ่านง่าย และสั้นพอดีกับหน้าจอมือถือ
 หัวข้อที่ควรโฟกัสคือ: ${intent?.label || DEFAULT_INTENT_RULE.label}
+
+ความรู้เพิ่มเติมจากแอดมิน:
+${knowledgeText ? knowledgeText : "- ยังไม่มีข้อมูลเพิ่มเติม"}
 
 ข้อมูลผู้ใช้:
 - ชื่อ: ${user.name || "ผู้ใช้"}
@@ -1600,12 +1698,14 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 
     const lastGlucose = await getLatestGlucoseRecord(req.authUser.id);
     const intent = findIntentRule("", message);
+    const knowledgeEntries = await getRelevantKnowledgeEntries(intent?.key, 4);
 
     const prompt = buildDiabetesChatPrompt({
       user: req.authUser,
       lastGlucose,
       message,
       intent,
+      knowledgeEntries,
     });
 
     try {
@@ -1858,12 +1958,14 @@ app.post("/api/chat", requireAuth, async (req, res) => {
 
     const lastGlucose = await getLatestGlucoseRecord(req.authUser.id);
     const intent = findIntentRule("", message);
+    const knowledgeEntries = await getRelevantKnowledgeEntries(intent?.key, 4);
 
     const prompt = buildDiabetesChatPrompt({
       user: req.authUser,
       lastGlucose,
       message,
       intent,
+      knowledgeEntries,
     });
 
     try {
@@ -2002,6 +2104,315 @@ app.get("/api/admin/quality", requireAdminAuth, async (req, res) => {
   }
 });
 
+app.get("/api/admin/knowledge", requireAdminAuth, async (_req, res) => {
+  try {
+    const rows = await db.all(
+      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at
+       FROM knowledge_entries
+       ORDER BY is_enabled DESC, sort_order DESC, updated_at DESC, id DESC`
+    );
+
+    res.json({ items: rows.map(formatKnowledgeEntry) });
+  } catch (error) {
+    console.error("Fetch admin knowledge error:", error);
+    res.status(500).json({ error: "à¸”à¸¶à¸‡à¸‚à¹‰à¸­à¸¡à¸¹à¸¥à¸à¸²à¸™à¸„à¸§à¸²à¸¡à¸£à¸¹à¹‰à¹„à¸¡à¹ˆà¸ªà¸³à¹€à¸£à¹‡à¸ˆ" });
+  }
+});
+
+app.post("/api/admin/knowledge", requireAdminAuth, async (req, res) => {
+  const payload = {
+    title: normalizeText(req.body?.title),
+    content: normalizeText(req.body?.content),
+    intentKey: normalizeKnowledgeIntent(req.body?.intentKey),
+    tags: normalizeText(req.body?.tags),
+    sortOrder: Number.parseInt(String(req.body?.sortOrder ?? "0"), 10) || 0,
+    isEnabled: req.body?.isEnabled !== false,
+  };
+
+  try {
+    const validationError = validateKnowledgePayload(payload);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    const result = await db.run(
+      `INSERT INTO knowledge_entries (title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      [
+        payload.title,
+        payload.content,
+        payload.intentKey,
+        payload.tags,
+        payload.isEnabled,
+        payload.sortOrder,
+      ]
+    );
+
+    const created = await db.get(
+      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at
+       FROM knowledge_entries
+       WHERE id = ?`,
+      [result?.lastID]
+    );
+
+    res.status(201).json({
+      status: "success",
+      item: created ? formatKnowledgeEntry(created) : null,
+    });
+  } catch (error) {
+    console.error("Create admin knowledge error:", error);
+    res.status(500).json({ error: "à¸šà¸±à¸™à¸—à¸¶à¸à¸„à¸§à¸²à¸¡à¸£à¸¹à¹‰à¹„à¸¡à¹ˆà¸ªà¸³à¹€à¸£à¹‡à¸ˆ" });
+  }
+});
+
+app.patch("/api/admin/knowledge/:id", requireAdminAuth, async (req, res) => {
+  const id = Number.parseInt(String(req.params?.id), 10);
+
+  try {
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: "à¸£à¸«à¸±à¸ªà¸„à¸§à¸²à¸¡à¸£à¸¹à¹‰à¹„à¸¡à¹ˆà¸–à¸¹à¸à¸•à¹‰à¸­à¸‡" });
+    }
+
+    const existing = await db.get(
+      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at
+       FROM knowledge_entries
+       WHERE id = ?`,
+      [id]
+    );
+
+    if (!existing) {
+      return res.status(404).json({ error: "à¹„à¸¡à¹ˆà¸žà¸šà¸£à¸²à¸¢à¸à¸²à¸£à¸„à¸§à¸²à¸¡à¸£à¸¹à¹‰" });
+    }
+
+    const nextPayload = {
+      title: req.body?.title !== undefined ? normalizeText(req.body?.title) : normalizeText(existing.title),
+      content:
+        req.body?.content !== undefined ? normalizeText(req.body?.content) : normalizeText(existing.content),
+      intentKey:
+        req.body?.intentKey !== undefined
+          ? normalizeKnowledgeIntent(req.body?.intentKey)
+          : normalizeKnowledgeIntent(existing.intent_key),
+      tags: req.body?.tags !== undefined ? normalizeText(req.body?.tags) : normalizeText(existing.tags),
+      sortOrder:
+        req.body?.sortOrder !== undefined
+          ? Number.parseInt(String(req.body?.sortOrder), 10) || 0
+          : Number(existing.sort_order) || 0,
+      isEnabled:
+        req.body?.isEnabled !== undefined ? Boolean(req.body?.isEnabled) : Boolean(existing.is_enabled),
+    };
+
+    const validationError = validateKnowledgePayload(nextPayload);
+    if (validationError) {
+      return res.status(400).json({ error: validationError });
+    }
+
+    await db.run(
+      `UPDATE knowledge_entries
+       SET title = ?, content = ?, intent_key = ?, tags = ?, is_enabled = ?, sort_order = ?, updated_at = NOW()
+       WHERE id = ?`,
+      [
+        nextPayload.title,
+        nextPayload.content,
+        nextPayload.intentKey,
+        nextPayload.tags,
+        nextPayload.isEnabled,
+        nextPayload.sortOrder,
+        id,
+      ]
+    );
+
+    const updated = await db.get(
+      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at
+       FROM knowledge_entries
+       WHERE id = ?`,
+      [id]
+    );
+
+    res.json({
+      status: "success",
+      item: updated ? formatKnowledgeEntry(updated) : null,
+    });
+  } catch (error) {
+    console.error("Update admin knowledge error:", error);
+    res.status(500).json({ error: "à¸­à¸±à¸›à¹€à¸”à¸•à¸„à¸§à¸²à¸¡à¸£à¸¹à¹‰à¹„à¸¡à¹ˆà¸ªà¸³à¹€à¸£à¹‡à¸ˆ" });
+  }
+});
+
+app.delete("/api/admin/knowledge/:id", requireAdminAuth, async (req, res) => {
+  const id = Number.parseInt(String(req.params?.id), 10);
+
+  try {
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: "à¸£à¸«à¸±à¸ªà¸„à¸§à¸²à¸¡à¸£à¸¹à¹‰à¹„à¸¡à¹ˆà¸–à¸¹à¸à¸•à¹‰à¸­à¸‡" });
+    }
+
+    const result = await db.run("DELETE FROM knowledge_entries WHERE id = ?", [id]);
+    if (!result?.changes) {
+      return res.status(404).json({ error: "à¹„à¸¡à¹ˆà¸žà¸šà¸£à¸²à¸¢à¸à¸²à¸£à¸„à¸§à¸²à¸¡à¸£à¸¹à¹‰" });
+    }
+
+    res.json({ status: "success" });
+  } catch (error) {
+    console.error("Delete admin knowledge error:", error);
+    res.status(500).json({ error: "à¸¥à¸šà¸„à¸§à¸²à¸¡à¸£à¸¹à¹‰à¹„à¸¡à¹ˆà¸ªà¸³à¹€à¸£à¹‡à¸ˆ" });
+  }
+});
+
+app.get("/api/admin/users", requireAdminAuth, async (req, res) => {
+  try {
+    const search = normalizeText(req.query?.search);
+    const limitValue = Number.parseInt(String(req.query?.limit || "50"), 10);
+    const offsetValue = Number.parseInt(String(req.query?.offset || "0"), 10);
+    const result = await getAdminUsers({
+      db,
+      search,
+      limit: Number.isNaN(limitValue) ? 50 : limitValue,
+      offset: Number.isNaN(offsetValue) ? 0 : offsetValue,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error("Fetch admin users error:", error);
+    res.status(500).json({ error: "ดึงรายชื่อผู้ใช้ไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/users/:id", requireAdminAuth, async (req, res) => {
+  try {
+    const detail = await getAdminUserDetail({ db, userId: req.params?.id });
+    if (!detail) {
+      return res.status(404).json({ error: "ไม่พบผู้ใช้รายนี้" });
+    }
+    res.json(detail);
+  } catch (error) {
+    console.error("Fetch admin user detail error:", error);
+    res.status(500).json({ error: "ดึงรายละเอียดผู้ใช้ไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/records", requireAdminAuth, async (req, res) => {
+  try {
+    const type = normalizeText(req.query?.type) || "all";
+    const search = normalizeText(req.query?.search);
+    const userId = normalizeText(req.query?.userId);
+    const phase = normalizeText(req.query?.phase);
+    const limitValue = Number.parseInt(String(req.query?.limit || "100"), 10);
+    const offsetValue = Number.parseInt(String(req.query?.offset || "0"), 10);
+
+    const result = await getAdminRecords({
+      db,
+      type,
+      search,
+      userId,
+      phase,
+      range: getAdminDateRange(req),
+      limit: Number.isNaN(limitValue) ? 100 : limitValue,
+      offset: Number.isNaN(offsetValue) ? 0 : offsetValue,
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error("Fetch admin records error:", error);
+    res.status(500).json({ error: "ดึงรายการบันทึกไม่สำเร็จ" });
+  }
+});
+
+app.delete("/api/admin/records/:type/:id", requireAdminAuth, async (req, res) => {
+  const type = normalizeText(req.params?.type).toLowerCase();
+  const id = Number.parseInt(String(req.params?.id), 10);
+
+  try {
+    if (!Number.isInteger(id) || id <= 0) {
+      return res.status(400).json({ error: "รหัสรายการไม่ถูกต้อง" });
+    }
+
+    if (type === "glucose") {
+      const result = await db.run("DELETE FROM glucose_history WHERE id = ?", [id]);
+      if (!result?.changes) {
+        return res.status(404).json({ error: "ไม่พบรายการน้ำตาล" });
+      }
+      return res.json({ status: "success" });
+    }
+
+    if (type === "chat") {
+      const result = await db.run("DELETE FROM ai_chat_logs WHERE id = ?", [id]);
+      if (!result?.changes) {
+        return res.status(404).json({ error: "ไม่พบรายการคำถาม" });
+      }
+      return res.json({ status: "success" });
+    }
+
+    return res.status(400).json({ error: "ประเภทรายการไม่ถูกต้อง" });
+  } catch (error) {
+    console.error("Delete admin record error:", error);
+    res.status(500).json({ error: "ลบรายการไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/anomalies", requireAdminAuth, async (req, res) => {
+  try {
+    const range = getAdminDateRange(req);
+    const highThresholdValue = Number.parseInt(String(req.query?.highThreshold || "250"), 10);
+    const lowThresholdValue = Number.parseInt(String(req.query?.lowThreshold || "70"), 10);
+    const minFallbackCountValue = Number.parseInt(String(req.query?.minFallbackCount || "3"), 10);
+
+    const result = await getAdminAnomalies({
+      db,
+      range,
+      highThreshold: Number.isNaN(highThresholdValue) ? 250 : highThresholdValue,
+      lowThreshold: Number.isNaN(lowThresholdValue) ? 70 : lowThresholdValue,
+      minFallbackCount: Number.isNaN(minFallbackCountValue) ? 3 : minFallbackCountValue,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error("Fetch admin anomalies error:", error);
+    res.status(500).json({ error: "ดึง anomaly ไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/export/users.csv", requireAdminAuth, async (req, res) => {
+  try {
+    const csv = await exportAdminUsersCsv({ db, search: normalizeText(req.query?.search) });
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="admin-users.csv"');
+    res.send(`\uFEFF${csv}`);
+  } catch (error) {
+    console.error("Export admin users error:", error);
+    res.status(500).json({ error: "ส่งออกรายชื่อผู้ใช้ไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/export/records.csv", requireAdminAuth, async (req, res) => {
+  try {
+    const csv = await exportAdminRecordsCsv({
+      db,
+      type: normalizeText(req.query?.type) || "all",
+      search: normalizeText(req.query?.search),
+      userId: normalizeText(req.query?.userId),
+      phase: normalizeText(req.query?.phase),
+      range: getAdminDateRange(req),
+    });
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="admin-records.csv"');
+    res.send(`\uFEFF${csv}`);
+  } catch (error) {
+    console.error("Export admin records error:", error);
+    res.status(500).json({ error: "ส่งออกรายการไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/export/anomalies.csv", requireAdminAuth, async (req, res) => {
+  try {
+    const range = getAdminDateRange(req);
+    const csv = await exportAdminAnomaliesCsv({ db, range });
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="admin-anomalies.csv"');
+    res.send(`\uFEFF${csv}`);
+  } catch (error) {
+    console.error("Export admin anomalies error:", error);
+    res.status(500).json({ error: "ส่งออก anomaly ไม่สำเร็จ" });
+  }
+});
+
 app.get("/api/admin/export/questions.csv", requireAdminAuth, async (req, res) => {
   try {
     const range = getAdminDateRange(req);
@@ -2036,6 +2447,18 @@ app.get("/api/admin/export/fallbacks.csv", requireAdminAuth, async (req, res) =>
   } catch (error) {
     console.error("Export admin fallbacks error:", error);
     res.status(500).json({ error: "ส่งออกข้อมูล fallback ไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/export/knowledge.csv", requireAdminAuth, async (_req, res) => {
+  try {
+    const csv = await exportAdminKnowledgeCsv({ db });
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="admin-knowledge.csv"');
+    res.send(`\uFEFF${csv}`);
+  } catch (error) {
+    console.error("Export admin knowledge error:", error);
+    res.status(500).json({ error: "ส่งออกข้อมูลความรู้ไม่สำเร็จ" });
   }
 });
 
@@ -2080,6 +2503,34 @@ app.get("/api/questions/popular", requireAuth, async (req, res) => {
   } catch (error) {
     console.error("Fetch popular questions error:", error);
     res.status(500).json({ error: "ดึงคำถามยอดนิยมไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/questions/history", requireAuth, async (req, res) => {
+  try {
+    const category = normalizePopularQuestionCategory(req.query?.category);
+    const limitValue = Number.parseInt(String(req.query?.limit || "10"), 10);
+    const limit = Number.isNaN(limitValue) ? 10 : Math.min(Math.max(limitValue, 1), 20);
+    const intentKeys = POPULAR_QUESTION_INTENT_GROUPS[category] || POPULAR_QUESTION_INTENT_GROUPS.report;
+
+    const questions = await db.all(
+      `SELECT question_text, intent_key, COUNT(*)::int AS count, MAX(created_at) AS updated_at
+       FROM ai_chat_logs
+       WHERE user_id = ?
+         AND intent_key = ANY(?)
+       GROUP BY question_text, intent_key
+       ORDER BY updated_at DESC, count DESC, question_text ASC
+       LIMIT ?`,
+      [req.authUser.id, intentKeys, limit]
+    );
+
+    res.json({
+      category,
+      questions,
+    });
+  } catch (error) {
+    console.error("Fetch user question history error:", error);
+    res.status(500).json({ error: "ดึงประวัติคำถามของคุณไม่สำเร็จ" });
   }
 });
 

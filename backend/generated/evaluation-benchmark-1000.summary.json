@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-07-22T16:15:56.190Z",
+  "total": 1000,
+  "correct": 810,
+  "incorrect": 190,
+  "accuracy": 0.81,
+  "byIntent": {
+    "greeting": 125,
+    "food": 125,
+    "glucose": 125,
+    "symptom": 125,
+    "exercise": 125,
+    "medicine": 125,
+    "report": 125,
+    "general": 125
+  }
+}

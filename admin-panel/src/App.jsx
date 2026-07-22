@@ -2081,8 +2081,11 @@ function EvaluationView({ search, dateRange }) {
       const response = await fetch(`${API_URL}/admin/evaluation/benchmark/upload`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: file.name, csvText: await file.text() }),
+        headers: {
+          'Content-Type': 'text/csv;charset=utf-8',
+          'X-Benchmark-Filename': file.name,
+        },
+        body: await file.text(),
       });
       if (response.status === 401) throw new Error('session_expired');
       const responseText = await response.text();

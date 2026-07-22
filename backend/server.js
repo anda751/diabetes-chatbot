@@ -134,6 +134,7 @@ app.use(
   })
 );
 app.use(express.json({ limit: "10mb" }));
+app.use(express.text({ type: ["text/plain", "text/csv"], limit: "10mb" }));
 
 const scrypt = promisify(scryptCallback);
 const GEMINI_MODELS = [...new Set([
@@ -2423,7 +2424,7 @@ app.get("/api/admin/evaluation/benchmark", requireAdminAuth, async (_req, res) =
 
 app.post("/api/admin/evaluation/benchmark/upload", requireAdminAuth, async (req, res) => {
   try {
-    const csvText = String(req.body?.csvText || "");
+    const csvText = typeof req.body === "string" ? req.body : String(req.body?.csvText || "");
     const rows = parseCsvText(csvText);
     if (rows.length < 2) {
       return res.status(400).json({ error: "ไฟล์ CSV ไม่มีข้อมูล" });
@@ -2482,7 +2483,7 @@ app.post("/api/admin/evaluation/benchmark/upload", requireAdminAuth, async (req,
       reviewQueue: buildBenchmarkReviewQueue(dataRows, headerIndex),
       updatedAt: new Date().toISOString(),
       source: "benchmark-upload",
-      sourceFile: String(req.body?.filename || "uploaded benchmark.csv"),
+      sourceFile: String(req.get("x-benchmark-filename") || req.body?.filename || "uploaded benchmark.csv"),
     });
   } catch (error) {
     console.error("Upload admin benchmark evaluation error:", error);
@@ -2965,6 +2966,13 @@ app.get("/api/questions/history", requireAuth, async (req, res) => {
     console.error("Fetch user question history error:", error);
     res.status(500).json({ error: "ดึงประวัติคำถามของคุณไม่สำเร็จ" });
   }
+});
+
+app.use((error, _req, res, next) => {
+  if (error instanceof SyntaxError && error.status === 400 && error.type === "entity.parse.failed") {
+    return res.status(400).json({ error: "รูปแบบข้อมูลที่ส่งมาไม่ถูกต้อง กรุณาอัปโหลดไฟล์ CSV ใหม่" });
+  }
+  return next(error);
 });
 
 const PORT = process.env.PORT || 5000;

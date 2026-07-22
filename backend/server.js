@@ -12,18 +12,22 @@ import { GoogleGenAI } from "@google/genai";
 import webpush from "web-push";
 import {
   exportAdminAnomaliesCsv,
+  exportAdminEvaluationCsv,
   exportAdminRecordsCsv,
   exportAdminUsersCsv,
   exportAdminFallbacksCsv,
   exportAdminKnowledgeCsv,
   exportAdminQuestionsCsv,
   getAdminAnomalies,
+  getAdminEvaluation,
   getAdminOverview,
   getAdminRecords,
   getAdminUserDetail,
   getAdminUsers,
   getAdminStats,
   getAdminQuality,
+  deleteChatEvaluation,
+  upsertChatEvaluation,
 } from "./adminAnalytics.js";
 import { initDB } from "./database.js";
 
@@ -2104,6 +2108,56 @@ app.get("/api/admin/quality", requireAdminAuth, async (req, res) => {
   }
 });
 
+app.get("/api/admin/evaluation", requireAdminAuth, async (req, res) => {
+  try {
+    const range = getAdminDateRange(req);
+    const search = normalizeText(req.query?.search);
+    const limitValue = Number.parseInt(String(req.query?.limit || "40"), 10);
+    const offsetValue = Number.parseInt(String(req.query?.offset || "0"), 10);
+    const result = await getAdminEvaluation({
+      db,
+      range,
+      search,
+      limit: Number.isNaN(limitValue) ? 40 : limitValue,
+      offset: Number.isNaN(offsetValue) ? 0 : offsetValue,
+      getIntentDisplayLabel,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error("Fetch admin evaluation error:", error);
+    res.status(500).json({ error: "ดึงข้อมูลประเมินความถูกต้องไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/admin/evaluation/:chatLogId", requireAdminAuth, async (req, res) => {
+  try {
+    const result = await upsertChatEvaluation({
+      db,
+      chatLogId: req.params?.chatLogId,
+      actualIntentKey: req.body?.actualIntentKey,
+      notes: req.body?.notes,
+      getIntentDisplayLabel,
+    });
+    res.json({ status: "success", item: result });
+  } catch (error) {
+    console.error("Save admin evaluation error:", error);
+    res.status(500).json({ error: error.message || "บันทึกการประเมินไม่สำเร็จ" });
+  }
+});
+
+app.delete("/api/admin/evaluation/:chatLogId", requireAdminAuth, async (req, res) => {
+  try {
+    const deleted = await deleteChatEvaluation({ db, chatLogId: req.params?.chatLogId });
+    if (!deleted) {
+      return res.status(404).json({ error: "ไม่พบรายการประเมิน" });
+    }
+    res.json({ status: "success" });
+  } catch (error) {
+    console.error("Delete admin evaluation error:", error);
+    res.status(500).json({ error: error.message || "ลบการประเมินไม่สำเร็จ" });
+  }
+});
+
 app.get("/api/admin/knowledge", requireAdminAuth, async (_req, res) => {
   try {
     const rows = await db.all(
@@ -2410,6 +2464,24 @@ app.get("/api/admin/export/anomalies.csv", requireAdminAuth, async (req, res) =>
   } catch (error) {
     console.error("Export admin anomalies error:", error);
     res.status(500).json({ error: "ส่งออก anomaly ไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/export/evaluation.csv", requireAdminAuth, async (req, res) => {
+  try {
+    const range = getAdminDateRange(req);
+    const csv = await exportAdminEvaluationCsv({
+      db,
+      range,
+      search: normalizeText(req.query?.search),
+      getIntentDisplayLabel,
+    });
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="admin-evaluation.csv"');
+    res.send(`\uFEFF${csv}`);
+  } catch (error) {
+    console.error("Export admin evaluation error:", error);
+    res.status(500).json({ error: "ส่งออก evaluation ไม่สำเร็จ" });
   }
 });
 

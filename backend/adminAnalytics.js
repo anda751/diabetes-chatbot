@@ -44,6 +44,96 @@ function buildSearchCondition(columns = [], keyword = "") {
   return { clause, params };
 }
 
+const EVALUATION_INTENT_ORDER = [
+  "general",
+  "greeting",
+  "food",
+  "glucose",
+  "symptom",
+  "exercise",
+  "medicine",
+  "report",
+];
+
+function normalizeEvaluationIntent(rawIntent) {
+  const intent = String(rawIntent || "").trim().toLowerCase();
+  return EVALUATION_INTENT_ORDER.includes(intent) ? intent : "general";
+}
+
+function collectEvaluationLabels(rows = []) {
+  const labelSet = new Set(EVALUATION_INTENT_ORDER);
+  for (const row of rows) {
+    labelSet.add(normalizeEvaluationIntent(row.predictedIntentKey));
+    labelSet.add(normalizeEvaluationIntent(row.actualIntentKey));
+  }
+  return [...labelSet];
+}
+
+function buildConfusionMatrix(rows = []) {
+  const labels = collectEvaluationLabels(rows);
+  const labelIndex = new Map(labels.map((label, index) => [label, index]));
+  const matrix = labels.map(() => labels.map(() => 0));
+
+  for (const row of rows) {
+    const actualIntent = normalizeEvaluationIntent(row.actualIntentKey);
+    const predictedIntent = normalizeEvaluationIntent(row.predictedIntentKey);
+    const actualIndex = labelIndex.get(actualIntent);
+    const predictedIndex = labelIndex.get(predictedIntent);
+    if (actualIndex == null || predictedIndex == null) continue;
+    matrix[actualIndex][predictedIndex] += 1;
+  }
+
+  const perClass = labels.map((label, rowIndex) => {
+    const tp = matrix[rowIndex][rowIndex];
+    const fn = matrix[rowIndex].reduce((sum, value, columnIndex) => (columnIndex === rowIndex ? sum : sum + value), 0);
+    const fp = matrix.reduce((sum, currentRow, currentRowIndex) => (
+      currentRowIndex === rowIndex ? sum : sum + currentRow[rowIndex]
+    ), 0);
+    const support = matrix[rowIndex].reduce((sum, value) => sum + value, 0);
+    const precision = tp + fp ? tp / (tp + fp) : 0;
+    const recall = tp + fn ? tp / (tp + fn) : 0;
+    const f1 = precision + recall ? (2 * precision * recall) / (precision + recall) : 0;
+
+    return {
+      intentKey: label,
+      support,
+      tp,
+      fp,
+      fn,
+      precision,
+      recall,
+      f1,
+    };
+  });
+
+  const total = rows.length;
+  const correct = matrix.reduce((sum, currentRow, index) => sum + (currentRow[index] || 0), 0);
+  const accuracy = total ? correct / total : 0;
+  const macroPrecision = perClass.length
+    ? perClass.reduce((sum, item) => sum + item.precision, 0) / perClass.length
+    : 0;
+  const macroRecall = perClass.length
+    ? perClass.reduce((sum, item) => sum + item.recall, 0) / perClass.length
+    : 0;
+  const macroF1 = perClass.length
+    ? perClass.reduce((sum, item) => sum + item.f1, 0) / perClass.length
+    : 0;
+
+  return {
+    labels,
+    matrix,
+    perClass,
+    summary: {
+      total,
+      correct,
+      accuracy,
+      macroPrecision,
+      macroRecall,
+      macroF1,
+    },
+  };
+}
+
 async function getOverviewFromChatLogs(db, range, excludedTexts) {
   const userDateFilter = buildDateConditions("created_at", range);
   const glucoseDateFilter = buildDateConditions("recorded_at", range);
@@ -275,6 +365,228 @@ export async function getAdminQuality({ db, range, getIntentDisplayLabel }) {
     range,
     updatedAt: new Date().toISOString(),
   };
+}
+
+export async function getAdminEvaluation({ db, range, search = "", limit = 50, offset = 0, getIntentDisplayLabel }) {
+  const chatDateFilter = buildDateConditions("cl.created_at", range);
+  const keyword = String(search || "").trim();
+  const searchCondition = buildSearchCondition(
+    ["u.username", "u.name", "cl.question_text", "cl.intent_key", "ev.actual_intent_key", "cl.response_model"],
+    keyword
+  );
+  const safeLimit = Math.min(Math.max(Number(limit) || 50, 1), 100);
+  const safeOffset = Math.max(Number(offset) || 0, 0);
+
+  const baseConditions = [...chatDateFilter.conditions];
+  const baseParams = [...chatDateFilter.params];
+  if (searchCondition.clause) {
+    baseConditions.push(searchCondition.clause);
+    baseParams.push(...searchCondition.params);
+  }
+
+  const reviewedRows = await db.all(
+    `SELECT
+       cl.id,
+       cl.user_id,
+       u.username,
+       u.name,
+       cl.question_text,
+       cl.intent_key AS predicted_intent_key,
+       cl.response_model,
+       cl.used_fallback,
+       cl.created_at,
+       ev.actual_intent_key,
+       ev.notes,
+       ev.reviewed_at
+     FROM ai_chat_logs cl
+     LEFT JOIN users u ON u.id = cl.user_id
+     INNER JOIN chat_evaluations ev ON ev.chat_log_id = cl.id
+     ${buildWhereClause(baseConditions)}
+     ORDER BY cl.created_at DESC, cl.id DESC`,
+    baseParams
+  );
+
+  const queueRows = await db.all(
+    `SELECT
+       cl.id,
+       cl.user_id,
+       u.username,
+       u.name,
+       cl.question_text,
+       cl.intent_key AS predicted_intent_key,
+       cl.response_model,
+       cl.used_fallback,
+       cl.created_at,
+       ev.actual_intent_key,
+       ev.notes,
+       ev.reviewed_at
+     FROM ai_chat_logs cl
+     LEFT JOIN users u ON u.id = cl.user_id
+     LEFT JOIN chat_evaluations ev ON ev.chat_log_id = cl.id
+     ${buildWhereClause(baseConditions)}
+     ORDER BY COALESCE(ev.reviewed_at, cl.created_at) DESC, cl.id DESC
+     LIMIT ? OFFSET ?`,
+    [...baseParams, safeLimit, safeOffset]
+  );
+
+  const matrixData = buildConfusionMatrix(
+    reviewedRows.map((item) => ({
+      predictedIntentKey: item.predicted_intent_key,
+      actualIntentKey: item.actual_intent_key,
+    }))
+  );
+
+  const reviewQueue = queueRows.map((item) => ({
+    id: Number(item.id) || 0,
+    userId: Number(item.user_id) || 0,
+    username: item.username,
+    name: item.name,
+    questionText: item.question_text,
+    predictedIntentKey: item.predicted_intent_key,
+    predictedLabel: getIntentDisplayLabel(item.predicted_intent_key),
+    responseModel: item.response_model || "unknown",
+    usedFallback: Boolean(item.used_fallback),
+    createdAt: item.created_at,
+    actualIntentKey: item.actual_intent_key || "",
+    actualLabel: item.actual_intent_key ? getIntentDisplayLabel(item.actual_intent_key) : "",
+    notes: item.notes || "",
+    reviewedAt: item.reviewed_at || null,
+    isReviewed: Boolean(item.actual_intent_key),
+  }));
+
+  const totalReviewed = matrixData.summary.total;
+  const classMetrics = matrixData.perClass.map((item) => ({
+    ...item,
+    label: getIntentDisplayLabel(item.intentKey),
+    precision: Number(item.precision.toFixed(3)),
+    recall: Number(item.recall.toFixed(3)),
+    f1: Number(item.f1.toFixed(3)),
+  }));
+
+  return {
+    summary: {
+      totalReviewed,
+      accuracy: Number(matrixData.summary.accuracy.toFixed(3)),
+      macroPrecision: Number(matrixData.summary.macroPrecision.toFixed(3)),
+      macroRecall: Number(matrixData.summary.macroRecall.toFixed(3)),
+      macroF1: Number(matrixData.summary.macroF1.toFixed(3)),
+    },
+    labels: matrixData.labels.map((intentKey) => ({
+      intentKey,
+      label: getIntentDisplayLabel(intentKey),
+    })),
+    confusionMatrix: {
+      labels: matrixData.labels.map((intentKey) => ({
+        intentKey,
+        label: getIntentDisplayLabel(intentKey),
+      })),
+      rows: matrixData.labels.map((actualIntentKey, rowIndex) => ({
+        actualIntentKey,
+        actualLabel: getIntentDisplayLabel(actualIntentKey),
+        cells: matrixData.labels.map((predictedIntentKey, columnIndex) => ({
+          predictedIntentKey,
+          predictedLabel: getIntentDisplayLabel(predictedIntentKey),
+          count: matrixData.matrix[rowIndex][columnIndex],
+        })),
+      })),
+    },
+    classMetrics,
+    reviewQueue,
+    range,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+export async function upsertChatEvaluation({ db, chatLogId, actualIntentKey, notes = "", getIntentDisplayLabel }) {
+  const id = Number(chatLogId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("รหัสรายการไม่ถูกต้อง");
+  }
+
+  const normalizedIntent = normalizeEvaluationIntent(actualIntentKey);
+  const cleanNotes = String(notes || "").trim();
+
+  await db.run(
+    `INSERT INTO chat_evaluations (chat_log_id, actual_intent_key, notes, reviewed_at)
+     VALUES (?, ?, ?, NOW())
+     ON CONFLICT (chat_log_id) DO UPDATE SET
+       actual_intent_key = EXCLUDED.actual_intent_key,
+       notes = EXCLUDED.notes,
+       reviewed_at = NOW()`,
+    [id, normalizedIntent, cleanNotes]
+  );
+
+  const row = await db.get(
+    `SELECT chat_log_id, actual_intent_key, notes, reviewed_at
+     FROM chat_evaluations
+     WHERE chat_log_id = ?`,
+    [id]
+  );
+
+  return {
+    chatLogId: Number(row?.chat_log_id) || id,
+    actualIntentKey: row?.actual_intent_key || normalizedIntent,
+    actualLabel: getIntentDisplayLabel
+      ? getIntentDisplayLabel(row?.actual_intent_key || normalizedIntent)
+      : row?.actual_intent_key || normalizedIntent,
+    notes: row?.notes || "",
+    reviewedAt: row?.reviewed_at || null,
+  };
+}
+
+export async function deleteChatEvaluation({ db, chatLogId }) {
+  const id = Number(chatLogId);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("รหัสรายการไม่ถูกต้อง");
+  }
+
+  const result = await db.run("DELETE FROM chat_evaluations WHERE chat_log_id = ?", [id]);
+  return Boolean(result?.changes);
+}
+
+export async function exportAdminEvaluationCsv({
+  db,
+  range,
+  search = "",
+  getIntentDisplayLabel,
+}) {
+  const data = await getAdminEvaluation({
+    db,
+    range,
+    search,
+    limit: 1000,
+    offset: 0,
+    getIntentDisplayLabel,
+  });
+
+  return toCsv(
+    [
+      { key: "id", label: "id" },
+      { key: "username", label: "username" },
+      { key: "questionText", label: "question_text" },
+      { key: "predictedIntentKey", label: "predicted_intent_key" },
+      { key: "predictedLabel", label: "predicted_label" },
+      { key: "actualIntentKey", label: "actual_intent_key" },
+      { key: "actualLabel", label: "actual_label" },
+      { key: "responseModel", label: "response_model" },
+      { key: "usedFallback", label: "used_fallback" },
+      { key: "reviewedAt", label: "reviewed_at" },
+      { key: "notes", label: "notes" },
+    ],
+    data.reviewQueue.map((item) => ({
+      id: item.id,
+      username: item.username || "",
+      questionText: item.questionText || "",
+      predictedIntentKey: item.predictedIntentKey || "",
+      predictedLabel: item.predictedLabel || "",
+      actualIntentKey: item.actualIntentKey || "",
+      actualLabel: item.actualLabel || "",
+      responseModel: item.responseModel || "",
+      usedFallback: item.usedFallback,
+      reviewedAt: item.reviewedAt || "",
+      notes: item.notes || "",
+    }))
+  );
 }
 
 export async function exportAdminQuestionsCsv({

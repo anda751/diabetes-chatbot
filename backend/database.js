@@ -177,6 +177,30 @@ export async function initDB() {
   `);
 
   await db.exec(`
+    CREATE TABLE IF NOT EXISTS chat_evaluations (
+      chat_log_id BIGINT PRIMARY KEY REFERENCES ai_chat_logs(id) ON DELETE CASCADE,
+      actual_intent_key TEXT NOT NULL,
+      notes TEXT DEFAULT '',
+      reviewed_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+
+  await db.exec(`
+    ALTER TABLE chat_evaluations
+    ADD COLUMN IF NOT EXISTS actual_intent_key TEXT NOT NULL DEFAULT 'general'
+  `);
+
+  await db.exec(`
+    ALTER TABLE chat_evaluations
+    ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''
+  `);
+
+  await db.exec(`
+    ALTER TABLE chat_evaluations
+    ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ DEFAULT NOW()
+  `);
+
+  await db.exec(`
     CREATE TABLE IF NOT EXISTS knowledge_entries (
       id BIGSERIAL PRIMARY KEY,
       title TEXT NOT NULL,

@@ -6,6 +6,8 @@ import {
   BookOpen,
   Download,
   Edit3,
+  CheckCircle2,
+  XCircle,
   LayoutDashboard,
   LockKeyhole,
   LogOut,
@@ -15,6 +17,7 @@ import {
   ShieldCheck,
   Siren,
   Stethoscope,
+  Target,
   Save,
   ToggleLeft,
   ToggleRight,
@@ -33,6 +36,7 @@ const NAV_ITEMS = [
   { id: 'analytics', label: 'วิเคราะห์หมวดคำถาม', icon: BarChart3 },
   { id: 'popular', label: 'คำถามยอดนิยมจริง', icon: MessageSquareText },
   { id: 'quality', label: 'คุณภาพ AI', icon: ShieldCheck },
+  { id: 'evaluation', label: 'ประเมินความถูกต้อง', icon: Target },
   { id: 'health', label: 'สถานะระบบ', icon: Stethoscope },
   { id: 'table', label: 'ตารางข้อมูล', icon: ClipboardList },
   { id: 'users', label: 'ดูผู้ใช้', icon: Users },
@@ -318,6 +322,7 @@ function App() {
 
       const exportPathMap = {
         quality: '/admin/export/fallbacks.csv',
+        evaluation: '/admin/export/evaluation.csv',
         knowledge: '/admin/export/knowledge.csv',
         users: '/admin/export/users.csv',
         records: '/admin/export/records.csv',
@@ -348,6 +353,7 @@ function App() {
       const blob = await response.blob();
       const filenameMap = {
         quality: 'admin-fallbacks.csv',
+        evaluation: 'admin-evaluation.csv',
         knowledge: 'admin-knowledge.csv',
         users: 'admin-users.csv',
         records: 'admin-records.csv',
@@ -492,6 +498,8 @@ function App() {
           {activeView === 'popular' && <PopularQuestionsView questions={filteredQuestions} />}
 
           {activeView === 'quality' && <QualityView quality={dashboardData.quality} />}
+
+          {activeView === 'evaluation' && <EvaluationView search={search} dateRange={dateRange} />}
 
           {activeView === 'health' && <HealthView health={dashboardData.health} />}
 
@@ -1940,6 +1948,426 @@ function QualityView({ quality }) {
         </Panel>
       </section>
     </>
+  );
+}
+
+function EvaluationView({ search, dateRange }) {
+  const intentOptions = [
+    { value: 'general', label: 'ทั่วไป' },
+    { value: 'greeting', label: 'ทักทาย' },
+    { value: 'food', label: 'อาหาร' },
+    { value: 'glucose', label: 'น้ำตาล' },
+    { value: 'symptom', label: 'อาการ' },
+    { value: 'exercise', label: 'ออกกำลังกาย' },
+    { value: 'medicine', label: 'ยา' },
+    { value: 'report', label: 'รายงาน' },
+  ];
+
+  const [state, setState] = useState({
+    summary: null,
+    labels: [],
+    confusionMatrix: null,
+    classMetrics: [],
+    reviewQueue: [],
+    updatedAt: '',
+  });
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState(null);
+  const [selectedItemId, setSelectedItemId] = useState(null);
+  const [reviewForm, setReviewForm] = useState({
+    actualIntentKey: 'general',
+    notes: '',
+  });
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const loadEvaluation = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (search.trim()) params.set('search', search.trim());
+      if (dateRange?.startDate) params.set('startDate', dateRange.startDate);
+      if (dateRange?.endDate) params.set('endDate', dateRange.endDate);
+
+      const response = await fetch(`${API_URL}/admin/evaluation?${params.toString()}`, {
+        credentials: 'include',
+      });
+      if (response.status === 401) throw new Error('session_expired');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || 'ดึงข้อมูลประเมินไม่สำเร็จ');
+
+      setState({
+        summary: payload?.summary || null,
+        labels: Array.isArray(payload?.labels) ? payload.labels : [],
+        confusionMatrix: payload?.confusionMatrix || null,
+        classMetrics: Array.isArray(payload?.classMetrics) ? payload.classMetrics : [],
+        reviewQueue: Array.isArray(payload?.reviewQueue) ? payload.reviewQueue : [],
+        updatedAt: payload?.updatedAt || new Date().toISOString(),
+      });
+
+      const nextSelected = payload?.reviewQueue?.[0] || null;
+      setSelectedItemId((current) => current ?? nextSelected?.id ?? null);
+    } catch (fetchError) {
+      setError(fetchError.message === 'session_expired' ? 'เซสชันหมดอายุ โปรดเข้าสู่ระบบใหม่' : fetchError.message);
+      setState({
+        summary: null,
+        labels: [],
+        confusionMatrix: null,
+        classMetrics: [],
+        reviewQueue: [],
+        updatedAt: '',
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [search, dateRange?.startDate, dateRange?.endDate]);
+
+  useEffect(() => {
+    void loadEvaluation();
+  }, [loadEvaluation]);
+
+  const f1ChartData = useMemo(() => {
+    return (state.classMetrics || []).map((item) => ({
+      name: item.label,
+      shortName: item.label.length > 18 ? `${item.label.slice(0, 18)}...` : item.label,
+      value: Math.round((Number(item.f1) || 0) * 100),
+    }));
+  }, [state.classMetrics]);
+
+  const selectedQueueItem = useMemo(() => {
+    if (!selectedItemId) return state.reviewQueue[0] || null;
+    return state.reviewQueue.find((item) => item.id === selectedItemId) || state.reviewQueue[0] || null;
+  }, [selectedItemId, state.reviewQueue]);
+
+  useEffect(() => {
+    if (!selectedQueueItem) return;
+    setReviewForm({
+      actualIntentKey: selectedQueueItem.actualIntentKey || selectedQueueItem.predictedIntentKey || 'general',
+      notes: selectedQueueItem.notes || '',
+    });
+  }, [selectedQueueItem?.id]);
+
+  const handlePickItem = (item) => {
+    setSelectedItemId(item.id);
+    setReviewForm({
+      actualIntentKey: item.actualIntentKey || item.predictedIntentKey || 'general',
+      notes: item.notes || '',
+    });
+  };
+
+  const handleSaveReview = async (event) => {
+    event.preventDefault();
+    if (!selectedQueueItem) return;
+
+    setSavingId(selectedQueueItem.id);
+    setError('');
+    setMessage('');
+
+    try {
+      const response = await fetch(`${API_URL}/admin/evaluation/${selectedQueueItem.id}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          actualIntentKey: reviewForm.actualIntentKey,
+          notes: reviewForm.notes,
+        }),
+      });
+
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error || 'บันทึกการประเมินไม่สำเร็จ');
+
+      setMessage('บันทึกการประเมินเรียบร้อยแล้ว');
+      await loadEvaluation();
+    } catch (saveError) {
+      setError(saveError.message || 'บันทึกการประเมินไม่สำเร็จ');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const handleClearReview = async () => {
+    if (!selectedQueueItem) return;
+    if (!window.confirm('ลบ label การประเมินของรายการนี้ใช่ไหม?')) return;
+
+    setSavingId(selectedQueueItem.id);
+    setError('');
+    setMessage('');
+
+    try {
+      const response = await fetch(`${API_URL}/admin/evaluation/${selectedQueueItem.id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result?.error || 'ลบการประเมินไม่สำเร็จ');
+
+      setMessage('ลบการประเมินเรียบร้อยแล้ว');
+      await loadEvaluation();
+    } catch (deleteError) {
+      setError(deleteError.message || 'ลบการประเมินไม่สำเร็จ');
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const matrix = state.confusionMatrix || { labels: [], rows: [] };
+  const matrixLabels = matrix.labels || [];
+  const maxCell = Math.max(
+    0,
+    ...((matrix.rows || []).flatMap((row) => row.cells?.map((cell) => Number(cell.count) || 0) || []))
+  );
+
+  return (
+    <section className="mt-7 space-y-6">
+      <div className="grid gap-4 md:grid-cols-4">
+        <MetricCard
+          icon={<CheckCircle2 size={20} />}
+          title="Accuracy"
+          value={`${((state.summary?.accuracy || 0) * 100).toFixed(1)}%`}
+          helper={`รีวิวแล้ว ${state.summary?.totalReviewed || 0} รายการ`}
+          tone="emerald"
+        />
+        <MetricCard
+          icon={<Target size={20} />}
+          title="Precision"
+          value={`${((state.summary?.macroPrecision || 0) * 100).toFixed(1)}%`}
+          helper="ค่าเฉลี่ยแบบ macro"
+          tone="blue"
+        />
+        <MetricCard
+          icon={<Activity size={20} />}
+          title="Recall"
+          value={`${((state.summary?.macroRecall || 0) * 100).toFixed(1)}%`}
+          helper="ค่าเฉลี่ยแบบ macro"
+          tone="indigo"
+        />
+        <MetricCard
+          icon={<XCircle size={20} />}
+          title="F-measure"
+          value={`${((state.summary?.macroF1 || 0) * 100).toFixed(1)}%`}
+          helper="ค่าเฉลี่ยแบบ macro"
+          tone="amber"
+        />
+      </div>
+
+      <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Suspense fallback={<ChartPanelFallback tall />}>
+          <BarPanel
+            chartData={f1ChartData}
+            colors={COLORS}
+            search={search}
+            tall
+            title="F1 ราย intent"
+            description="ใช้ label จริงที่แอดมินเลือกเทียบกับ intent ที่ระบบทำนาย"
+          />
+        </Suspense>
+
+        <Panel
+          title="Confusion Matrix"
+          description="แถว = intent จริง, คอลัมน์ = intent ที่ระบบทำนาย"
+        >
+          {loading ? (
+            <EmptyState text="กำลังโหลดข้อมูลประเมิน..." />
+          ) : matrixLabels.length ? (
+            <div className="overflow-auto">
+              <div
+                className="grid gap-px rounded-2xl bg-slate-200 p-px"
+                style={{
+                  gridTemplateColumns: `180px repeat(${matrixLabels.length}, minmax(72px, 1fr))`,
+                }}
+              >
+                <div className="bg-slate-50 px-3 py-3 text-xs font-black uppercase tracking-[0.12em] text-slate-400">
+                  Actual / Pred
+                </div>
+                {matrixLabels.map((label) => (
+                  <div
+                    key={label.intentKey}
+                    className="bg-slate-50 px-3 py-3 text-center text-xs font-black text-slate-500"
+                  >
+                    {label.label}
+                  </div>
+                ))}
+                {matrix.rows.map((row) => (
+                  <React.Fragment key={row.actualIntentKey}>
+                    <div className="bg-slate-50 px-3 py-3 text-sm font-bold text-slate-700">
+                      {row.actualLabel}
+                    </div>
+                    {row.cells.map((cell) => {
+                      const count = Number(cell.count) || 0;
+                      const opacity = maxCell ? Math.max(0.08, count / maxCell) : 0.08;
+                      return (
+                        <div
+                          key={`${row.actualIntentKey}-${cell.predictedIntentKey}`}
+                          className="min-h-16 bg-white px-3 py-3 text-center"
+                          style={{
+                            backgroundColor: `rgba(37, 99, 235, ${opacity})`,
+                          }}
+                        >
+                          <p className="text-sm font-black text-slate-900">{count}</p>
+                        </div>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <EmptyState text="ยังไม่มี label จริงให้คำนวณ matrix" />
+          )}
+        </Panel>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+        <Panel
+          title="รายการสำหรับติด label"
+          description="เลือกคำตอบจริงของแต่ละคำถาม แล้วระบบจะคำนวณ metric ให้ใหม่"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm text-slate-500">คลิกรายการทางซ้ายเพื่อแก้ label จริง</p>
+            <button
+              type="button"
+              onClick={() => void loadEvaluation()}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
+              รีเฟรช
+            </button>
+          </div>
+
+          <div className="mt-4 max-h-[72vh] space-y-3 overflow-y-auto pr-1">
+            {state.reviewQueue.length ? (
+              state.reviewQueue.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handlePickItem(item)}
+                  className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
+                    selectedQueueItem?.id === item.id
+                      ? 'border-sky-300 bg-sky-50'
+                      : 'border-slate-100 bg-slate-50 hover:bg-white'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-600 shadow-sm">
+                          @{item.username || '-'}
+                        </span>
+                        {item.isReviewed ? (
+                          <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-700">
+                            reviewed
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-700">
+                            pending
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-3 text-sm font-bold leading-6 text-slate-800">
+                        {item.questionText}
+                      </p>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Predicted: {item.predictedLabel} • {item.responseModel}
+                      </p>
+                    </div>
+                    <span className="text-xs text-slate-400">{formatThaiDateTime(item.createdAt)}</span>
+                  </div>
+                </button>
+              ))
+            ) : (
+              <EmptyState text="ยังไม่มีรายการให้ประเมิน" />
+            )}
+          </div>
+        </Panel>
+
+        <Panel title="แก้ label จริง" description="เลือก intent จริงของคำถามนี้">
+          {selectedQueueItem ? (
+            <form className="space-y-4" onSubmit={handleSaveReview}>
+              <div className="rounded-3xl border border-slate-100 bg-slate-50 px-4 py-4">
+                <p className="text-sm font-bold leading-6 text-slate-800">{selectedQueueItem.questionText}</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Predicted: {selectedQueueItem.predictedLabel} • {selectedQueueItem.responseModel} •{' '}
+                  {formatThaiDateTime(selectedQueueItem.createdAt)}
+                </p>
+              </div>
+
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">คำตอบจริง / intent จริง</span>
+                <select
+                  value={reviewForm.actualIntentKey}
+                  onChange={(event) =>
+                    setReviewForm((prev) => ({ ...prev, actualIntentKey: event.target.value }))
+                  }
+                  className="mt-2 h-12 w-full rounded-2xl border border-slate-200 px-4 text-sm font-medium text-slate-800 outline-none transition focus:border-sky-400"
+                >
+                  {intentOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">หมายเหตุ</span>
+                <textarea
+                  value={reviewForm.notes}
+                  onChange={(event) => setReviewForm((prev) => ({ ...prev, notes: event.target.value }))}
+                  rows={5}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm font-medium leading-6 text-slate-800 outline-none transition focus:border-sky-400"
+                  placeholder="เช่น คำตอบควรเป็นอาหาร / ควรตอบแบบ fallback / ตอบผิดหมวด"
+                />
+              </label>
+
+              {selectedQueueItem.actualIntentKey ? (
+                <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                  Current review: {selectedQueueItem.actualLabel}
+                </div>
+              ) : null}
+
+              {message ? (
+                <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+                  {message}
+                </div>
+              ) : null}
+
+              {error ? (
+                <div className="rounded-2xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                  {error}
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="submit"
+                  disabled={savingId === selectedQueueItem.id}
+                  className="inline-flex h-12 items-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-bold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                >
+                  <Save size={17} />
+                  {savingId === selectedQueueItem.id ? 'กำลังบันทึก...' : 'บันทึก label'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleClearReview}
+                  disabled={savingId === selectedQueueItem.id || !selectedQueueItem.isReviewed}
+                  className="inline-flex h-12 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <X size={17} />
+                  ลบ label
+                </button>
+              </div>
+            </form>
+          ) : (
+            <EmptyState text="เลือกรายการจากฝั่งซ้ายเพื่อเริ่มประเมิน" />
+          )}
+        </Panel>
+      </section>
+    </section>
   );
 }
 

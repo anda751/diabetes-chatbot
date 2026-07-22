@@ -16,9 +16,9 @@ function ChartTooltip({ active, payload }) {
   const item = payload[0];
   return (
     <div className="max-w-xs rounded-lg border border-slate-200 bg-slate-900 px-4 py-3 text-white shadow-xl">
-      <p className="text-xs font-black uppercase tracking-[0.12em] text-sky-300">Intent</p>
+      <p className="text-xs font-black uppercase tracking-[0.12em] text-sky-300">Metric</p>
       <p className="mt-1 text-sm font-semibold leading-6">{item.payload?.name}</p>
-      <p className="mt-2 text-sm font-bold">จำนวน {item.value} ครั้ง</p>
+      <p className="mt-2 text-sm font-bold">ค่า {item.value}</p>
     </div>
   );
 }
@@ -31,12 +31,19 @@ function EmptyState({ text }) {
   );
 }
 
-export default function BarPanel({ chartData, colors, search, tall = false }) {
+export default function BarPanel({
+  chartData,
+  colors,
+  search,
+  tall = false,
+  title = 'อันดับหมวดคำถาม',
+  description = 'แสดง intent ที่ถูกถามบ่อยที่สุด',
+}) {
   return (
     <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
       <div className="mb-5">
-        <h3 className="text-xl font-black tracking-tight text-slate-900">อันดับหมวดคำถาม</h3>
-        <p className="mt-1 text-sm text-slate-500">แสดง intent ที่ถูกถามบ่อยที่สุด</p>
+        <h3 className="text-xl font-black tracking-tight text-slate-900">{title}</h3>
+        <p className="mt-1 text-sm text-slate-500">{description}</p>
       </div>
 
       <div className={tall ? 'h-[540px]' : 'h-[360px]'}>

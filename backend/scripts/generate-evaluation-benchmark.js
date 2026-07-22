@@ -167,8 +167,10 @@ function choosePredictedIntent(expectedIntentKey, random) {
 function buildQuestionText(intentKey, index, random) {
   const base = TEMPLATES[intentKey][index % TEMPLATES[intentKey].length];
   const suffix = CONTEXT_SUFFIXES[(index + Math.floor(random() * CONTEXT_SUFFIXES.length)) % CONTEXT_SUFFIXES.length];
-  const tail = index % 5 === 0 ? ` (${index + 1})` : "";
-  return `${base}${suffix}${tail}`;
+  const glucoseValue = 70 + ((index * 17 + intentKey.length * 3) % 181);
+  const dayOffset = (index * 3 + intentKey.length) % 31 + 1;
+  const scenario = `${intentKey}-${index + 1}`;
+  return `${base}${suffix} [scenario ${scenario}; glucose ${glucoseValue} mg/dL; day ${dayOffset}]`;
 }
 
 function buildRows(total = 1000) {
@@ -263,12 +265,13 @@ function summarize(rows) {
 
 function main() {
   const total = Number(process.env.BENCHMARK_TOTAL || 1000);
-  const outputPath = path.resolve(
+  const defaultOutputPath = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "..",
     "generated",
     "evaluation-benchmark-1000.csv"
   );
+  const outputPath = path.resolve(process.env.BENCHMARK_OUTPUT_PATH || defaultOutputPath);
   const rows = buildRows(total);
   const summary = summarize(rows);
 

@@ -133,7 +133,7 @@ app.use(
     credentials: true,
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 const scrypt = promisify(scryptCallback);
 const GEMINI_MODELS = [...new Set([
@@ -1389,6 +1389,33 @@ function buildBenchmarkEvaluation(rows = []) {
   };
 }
 
+function buildBenchmarkReviewQueue(dataRows, headerIndex) {
+  const questionIndex = headerIndex.get("question_text");
+  const expectedIndex = headerIndex.get("expected_intent_key");
+  const predictedIndex = headerIndex.get("predicted_intent_key");
+
+  return dataRows
+    .filter((row) => row.some((cell) => String(cell || "").trim() !== ""))
+    .map((row, index) => {
+      const expectedIntentKey = String(row[expectedIndex] || "").trim().toLowerCase();
+      const predictedIntentKey = String(row[predictedIndex] || "").trim().toLowerCase();
+      return {
+        id: `benchmark-${index + 1}`,
+        username: "benchmark",
+        questionText: String(questionIndex == null ? "" : row[questionIndex] || "").trim(),
+        predictedIntentKey,
+        predictedLabel: getIntentDisplayLabel(predictedIntentKey),
+        actualIntentKey: expectedIntentKey,
+        actualLabel: getIntentDisplayLabel(expectedIntentKey),
+        isReviewed: true,
+        readOnly: true,
+        responseModel: "benchmark file",
+        createdAt: new Date().toISOString(),
+      };
+    })
+    .filter((row) => row.questionText && row.actualIntentKey && row.predictedIntentKey);
+}
+
 async function recordChatLog({ userId, message, intentKey, responseModel, usedFallback }) {
   const questionText = normalizeText(message);
   if (!questionText) return null;
@@ -2383,7 +2410,7 @@ app.get("/api/admin/evaluation/benchmark", requireAdminAuth, async (_req, res) =
         recall: Number(item.recall.toFixed(3)),
         f1: Number(item.f1.toFixed(3)),
       })),
-      reviewQueue: [],
+      reviewQueue: buildBenchmarkReviewQueue(dataRows, headerIndex),
       updatedAt: new Date().toISOString(),
       source: "benchmark-file",
       sourceFile: benchmarkFile.pathname.split("/").pop(),
@@ -2391,6 +2418,75 @@ app.get("/api/admin/evaluation/benchmark", requireAdminAuth, async (_req, res) =
   } catch (error) {
     console.error("Fetch admin benchmark evaluation error:", error);
     res.status(500).json({ error: "อ่านไฟล์ benchmark ไม่สำเร็จ" });
+  }
+});
+
+app.post("/api/admin/evaluation/benchmark/upload", requireAdminAuth, async (req, res) => {
+  try {
+    const csvText = String(req.body?.csvText || "");
+    const rows = parseCsvText(csvText);
+    if (rows.length < 2) {
+      return res.status(400).json({ error: "ไฟล์ CSV ไม่มีข้อมูล" });
+    }
+
+    const [headerRow, ...dataRows] = rows;
+    const headerIndex = new Map(headerRow.map((value, index) => [String(value || "").trim(), index]));
+    const expectedIndex = headerIndex.get("expected_intent_key");
+    const predictedIndex = headerIndex.get("predicted_intent_key");
+    if (expectedIndex == null || predictedIndex == null) {
+      return res.status(400).json({
+        error: "ไฟล์ CSV ต้องมีคอลัมน์ expected_intent_key และ predicted_intent_key",
+      });
+    }
+
+    const benchmarkRows = dataRows
+      .filter((row) => row.some((cell) => String(cell || "").trim() !== ""))
+      .map((row) => ({
+        expected_intent_key: String(row[expectedIndex] || "").trim().toLowerCase(),
+        predicted_intent_key: String(row[predictedIndex] || "").trim().toLowerCase(),
+      }))
+      .filter((row) => row.expected_intent_key && row.predicted_intent_key);
+    const evaluation = buildBenchmarkEvaluation(benchmarkRows);
+    const labels = evaluation.labels.map((intentKey) => ({
+      intentKey,
+      label: getIntentDisplayLabel(intentKey),
+    }));
+
+    res.json({
+      summary: {
+        totalReviewed: evaluation.summary.total,
+        accuracy: Number(evaluation.summary.accuracy.toFixed(3)),
+        macroPrecision: Number(evaluation.summary.macroPrecision.toFixed(3)),
+        macroRecall: Number(evaluation.summary.macroRecall.toFixed(3)),
+        macroF1: Number(evaluation.summary.macroF1.toFixed(3)),
+      },
+      labels,
+      confusionMatrix: {
+        labels,
+        rows: evaluation.labels.map((actualIntentKey, rowIndex) => ({
+          actualIntentKey,
+          actualLabel: getIntentDisplayLabel(actualIntentKey),
+          cells: evaluation.labels.map((predictedIntentKey, columnIndex) => ({
+            predictedIntentKey,
+            predictedLabel: getIntentDisplayLabel(predictedIntentKey),
+            count: evaluation.matrix[rowIndex][columnIndex],
+          })),
+        })),
+      },
+      classMetrics: evaluation.perClass.map((item) => ({
+        ...item,
+        precision: Number(item.precision.toFixed(3)),
+        recall: Number(item.recall.toFixed(3)),
+        f1: Number(item.f1.toFixed(3)),
+      })),
+      reviewQueue: buildBenchmarkReviewQueue(dataRows, headerIndex),
+      updatedAt: new Date().toISOString(),
+      source: "benchmark-upload",
+      sourceFile: String(req.body?.filename || "uploaded benchmark.csv"),
+    });
+  } catch (error) {
+    console.error("Upload admin benchmark evaluation error:", error);
+    res.status(500).json({ error: "ประมวลผลไฟล์ benchmark ไม่สำเร็จ" });
   }
 });
 

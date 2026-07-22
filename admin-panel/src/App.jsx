@@ -18,6 +18,7 @@ import {
   Siren,
   Stethoscope,
   Target,
+  Upload,
   Save,
   ToggleLeft,
   ToggleRight,
@@ -1974,6 +1975,7 @@ function EvaluationView({ search, dateRange }) {
   });
   const [loading, setLoading] = useState(true);
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
+  const [uploadLoading, setUploadLoading] = useState(false);
   const [savingId, setSavingId] = useState(null);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [reviewForm, setReviewForm] = useState({
@@ -2058,6 +2060,43 @@ function EvaluationView({ search, dateRange }) {
       setError(fetchError.message === 'session_expired' ? 'เซสชันหมดอายุ โปรดเข้าสู่ระบบใหม่' : fetchError.message);
     } finally {
       setBenchmarkLoading(false);
+    }
+  }, []);
+
+  const handleBenchmarkUpload = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setUploadLoading(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/admin/evaluation/benchmark/upload`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: file.name, csvText: await file.text() }),
+      });
+      if (response.status === 401) throw new Error('session_expired');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || 'อัปโหลด benchmark ไม่สำเร็จ');
+
+      setState({
+        summary: payload?.summary || null,
+        labels: Array.isArray(payload?.labels) ? payload.labels : [],
+        confusionMatrix: payload?.confusionMatrix || null,
+        classMetrics: Array.isArray(payload?.classMetrics) ? payload.classMetrics : [],
+        reviewQueue: Array.isArray(payload?.reviewQueue) ? payload.reviewQueue : [],
+        updatedAt: payload?.updatedAt || new Date().toISOString(),
+        source: payload?.source || 'benchmark-upload',
+      });
+      setSelectedItemId(payload?.reviewQueue?.[0]?.id || null);
+      setMessage(`อัปโหลด ${file.name} สำเร็จ แสดงคำถาม ${payload?.reviewQueue?.length || 0} ข้อแล้ว`);
+    } catch (uploadError) {
+      setError(uploadError.message === 'session_expired' ? 'เซสชันหมดอายุ โปรดเข้าสู่ระบบใหม่' : uploadError.message);
+    } finally {
+      setUploadLoading(false);
     }
   }, []);
 
@@ -2269,11 +2308,16 @@ function EvaluationView({ search, dateRange }) {
               <p className="text-sm text-slate-500">คลิกรายการทางซ้ายเพื่อแก้ label จริง</p>
               {state.source ? (
                 <p className="text-xs font-medium text-slate-400">
-                  แหล่งข้อมูล: {state.source === 'benchmark-file' ? 'benchmark file' : 'ข้อมูลจริง'}
+                  แหล่งข้อมูล: {state.source === 'benchmark-file' ? 'benchmark file' : state.source === 'benchmark-upload' ? 'ไฟล์ที่อัปโหลด' : 'ข้อมูลจริง'}
                 </p>
               ) : null}
             </div>
             <div className="flex items-center gap-2">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100">
+                <Upload size={16} className={uploadLoading ? 'animate-pulse' : ''} />
+                {uploadLoading ? 'กำลังอัปโหลด...' : 'อัปโหลด CSV'}
+                <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleBenchmarkUpload} disabled={uploadLoading} />
+              </label>
               <button
                 type="button"
                 onClick={() => void loadBenchmarkSummary()}
@@ -2341,7 +2385,27 @@ function EvaluationView({ search, dateRange }) {
         </Panel>
 
         <Panel title="แก้ label จริง" description="เลือก intent จริงของคำถามนี้">
-          {selectedQueueItem ? (
+          {selectedQueueItem?.readOnly ? (
+            <div className="space-y-4">
+              <div className="rounded-3xl border border-indigo-100 bg-indigo-50 px-4 py-4">
+                <p className="text-xs font-bold uppercase tracking-wide text-indigo-500">คำถามจากไฟล์ benchmark</p>
+                <p className="mt-3 text-sm font-bold leading-6 text-slate-800">{selectedQueueItem.questionText}</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p className="text-xs text-slate-500">คำตอบที่คาดหวัง</p>
+                  <p className="mt-1 text-sm font-bold text-slate-800">{selectedQueueItem.actualLabel}</p>
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                  <p className="text-xs text-slate-500">คำตอบที่ระบบทำนาย</p>
+                  <p className="mt-1 text-sm font-bold text-slate-800">{selectedQueueItem.predictedLabel}</p>
+                </div>
+              </div>
+              <div className={`rounded-2xl px-4 py-3 text-sm font-bold ${selectedQueueItem.actualIntentKey === selectedQueueItem.predictedIntentKey ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                {selectedQueueItem.actualIntentKey === selectedQueueItem.predictedIntentKey ? 'ถูกต้อง' : 'ไม่ถูกต้อง'} — รายการนี้เป็นข้อมูลจากไฟล์ทดสอบแบบอ่านอย่างเดียว
+              </div>
+            </div>
+          ) : selectedQueueItem ? (
             <form className="space-y-4" onSubmit={handleSaveReview}>
               <div className="rounded-3xl border border-slate-100 bg-slate-50 px-4 py-4">
                 <p className="text-sm font-bold leading-6 text-slate-800">{selectedQueueItem.questionText}</p>

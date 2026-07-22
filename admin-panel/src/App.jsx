@@ -2038,7 +2038,13 @@ function EvaluationView({ search, dateRange }) {
         credentials: 'include',
       });
       if (response.status === 401) throw new Error('session_expired');
-      const payload = await response.json();
+      const responseText = await response.text();
+      let payload;
+      try {
+        payload = JSON.parse(responseText);
+      } catch {
+        throw new Error(`เซิร์ฟเวอร์ส่งข้อมูลไม่ใช่ JSON (${response.status}) โปรดตรวจสอบว่า backend ทำงานอยู่ที่ port 5000`);
+      }
       if (!response.ok) throw new Error(payload?.error || 'อ่านไฟล์ benchmark ไม่สำเร็จ');
 
       setState({
@@ -2079,7 +2085,13 @@ function EvaluationView({ search, dateRange }) {
         body: JSON.stringify({ filename: file.name, csvText: await file.text() }),
       });
       if (response.status === 401) throw new Error('session_expired');
-      const payload = await response.json();
+      const responseText = await response.text();
+      let payload;
+      try {
+        payload = JSON.parse(responseText);
+      } catch {
+        throw new Error(`เซิร์ฟเวอร์ส่งข้อมูลไม่ใช่ JSON (${response.status}) โปรดตรวจสอบว่า backend ทำงานอยู่ที่ port 5000`);
+      }
       if (!response.ok) throw new Error(payload?.error || 'อัปโหลด benchmark ไม่สำเร็จ');
 
       setState({

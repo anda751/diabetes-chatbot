@@ -1243,11 +1243,12 @@ function getIntentDisplayLabel(intentKey) {
 
 async function recordChatLog({ userId, message, intentKey, responseModel, usedFallback }) {
   const questionText = normalizeText(message);
-  if (!questionText) return;
+  if (!questionText) return null;
 
-  await db.run(
+  const row = await db.get(
     `INSERT INTO ai_chat_logs (user_id, question_text, intent_key, response_model, used_fallback)
-     VALUES (?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?)
+     RETURNING id`,
     [
       userId || null,
       questionText,
@@ -1256,6 +1257,8 @@ async function recordChatLog({ userId, message, intentKey, responseModel, usedFa
       usedFallback === true,
     ]
   );
+
+  return Number(row?.id) || null;
 }
 
 function validateProfilePayload(payload) {
@@ -1717,7 +1720,7 @@ app.post("/api/chat", requireAuth, async (req, res) => {
       const cleanedText = normalizeText(text).replace(/\n{3,}/g, "\n\n");
 
       if (!cleanedText) {
-        await recordChatLog({
+        const chatLogId = await recordChatLog({
           userId: req.authUser.id,
           message,
           intentKey: intent?.key,
@@ -1727,20 +1730,23 @@ app.post("/api/chat", requireAuth, async (req, res) => {
         return res.json({
           text: buildIntentFallbackResponse({ intent, lastGlucose }),
           model: "fallback",
+          intentKey: intent?.key,
+          usedFallback: true,
+          chatLogId,
         });
       }
 
-      await recordChatLog({
+      const chatLogId = await recordChatLog({
         userId: req.authUser.id,
         message,
         intentKey: intent?.key,
         responseModel: model,
         usedFallback: false,
       });
-      return res.json({ text: cleanedText, model });
+      return res.json({ text: cleanedText, model, intentKey: intent?.key, usedFallback: false, chatLogId });
     } catch (error) {
       console.error("Chat error:", error);
-      await recordChatLog({
+      const chatLogId = await recordChatLog({
         userId: req.authUser.id,
         message,
         intentKey: intent?.key,
@@ -1750,6 +1756,9 @@ app.post("/api/chat", requireAuth, async (req, res) => {
       return res.json({
         text: buildIntentFallbackResponse({ intent, lastGlucose }),
         model: "fallback",
+        intentKey: intent?.key,
+        usedFallback: true,
+        chatLogId,
       });
     }
   } catch (error) {
@@ -1977,18 +1986,45 @@ app.post("/api/chat", requireAuth, async (req, res) => {
       const cleanedText = normalizeText(text).replace(/\n{3,}/g, "\n\n");
 
       if (!cleanedText) {
+        const chatLogId = await recordChatLog({
+          userId: req.authUser.id,
+          message,
+          intentKey: intent?.key,
+          responseModel: "fallback",
+          usedFallback: true,
+        });
         return res.json({
           text: buildIntentFallbackResponse({ intent, lastGlucose }),
           model: "fallback",
+          intentKey: intent?.key,
+          usedFallback: true,
+          chatLogId,
         });
       }
 
-      return res.json({ text: cleanedText, model });
+      const chatLogId = await recordChatLog({
+        userId: req.authUser.id,
+        message,
+        intentKey: intent?.key,
+        responseModel: model,
+        usedFallback: false,
+      });
+      return res.json({ text: cleanedText, model, intentKey: intent?.key, usedFallback: false, chatLogId });
     } catch (error) {
       console.error("Chat error:", error);
+      const chatLogId = await recordChatLog({
+        userId: req.authUser.id,
+        message,
+        intentKey: intent?.key,
+        responseModel: "fallback",
+        usedFallback: true,
+      });
       return res.json({
         text: buildIntentFallbackResponse({ intent, lastGlucose }),
         model: "fallback",
+        intentKey: intent?.key,
+        usedFallback: true,
+        chatLogId,
       });
     }
   } catch (error) {

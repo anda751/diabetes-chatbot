@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   createHmac,
   randomBytes,
@@ -2315,7 +2315,18 @@ app.get("/api/admin/evaluation", requireAdminAuth, async (req, res) => {
 
 app.get("/api/admin/evaluation/benchmark", requireAdminAuth, async (_req, res) => {
   try {
-    const csvText = readFileSync(new URL("./generated/evaluation-benchmark-1000.csv", import.meta.url), "utf8");
+    const benchmarkFiles = [
+      "./generated/evaluation-benchmark-1000-unique.csv",
+      "./generated/evaluation-benchmark-1000.csv",
+      "./generated/evaluation-benchmark-1000-new.csv",
+    ].map((filePath) => new URL(filePath, import.meta.url));
+    const benchmarkFile = benchmarkFiles.find((filePath) => existsSync(filePath));
+
+    if (!benchmarkFile) {
+      return res.status(404).json({ error: "ไม่พบไฟล์ benchmark" });
+    }
+
+    const csvText = readFileSync(benchmarkFile, "utf8");
     const rows = parseCsvText(csvText);
 
     if (rows.length < 2) {
@@ -2375,6 +2386,7 @@ app.get("/api/admin/evaluation/benchmark", requireAdminAuth, async (_req, res) =
       reviewQueue: [],
       updatedAt: new Date().toISOString(),
       source: "benchmark-file",
+      sourceFile: benchmarkFile.pathname.split("/").pop(),
     });
   } catch (error) {
     console.error("Fetch admin benchmark evaluation error:", error);

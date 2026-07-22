@@ -1970,8 +1970,10 @@ function EvaluationView({ search, dateRange }) {
     classMetrics: [],
     reviewQueue: [],
     updatedAt: '',
+    source: '',
   });
   const [loading, setLoading] = useState(true);
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [savingId, setSavingId] = useState(null);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [reviewForm, setReviewForm] = useState({
@@ -2004,6 +2006,7 @@ function EvaluationView({ search, dateRange }) {
         classMetrics: Array.isArray(payload?.classMetrics) ? payload.classMetrics : [],
         reviewQueue: Array.isArray(payload?.reviewQueue) ? payload.reviewQueue : [],
         updatedAt: payload?.updatedAt || new Date().toISOString(),
+        source: payload?.source || 'live',
       });
 
       const nextSelected = payload?.reviewQueue?.[0] || null;
@@ -2017,11 +2020,46 @@ function EvaluationView({ search, dateRange }) {
         classMetrics: [],
         reviewQueue: [],
         updatedAt: '',
+        source: '',
       });
     } finally {
       setLoading(false);
     }
   }, [search, dateRange?.startDate, dateRange?.endDate]);
+
+  const loadBenchmarkSummary = useCallback(async () => {
+    setBenchmarkLoading(true);
+    setError('');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/admin/evaluation/benchmark`, {
+        credentials: 'include',
+      });
+      if (response.status === 401) throw new Error('session_expired');
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload?.error || 'อ่านไฟล์ benchmark ไม่สำเร็จ');
+
+      setState({
+        summary: payload?.summary || null,
+        labels: Array.isArray(payload?.labels) ? payload.labels : [],
+        confusionMatrix: payload?.confusionMatrix || null,
+        classMetrics: Array.isArray(payload?.classMetrics) ? payload.classMetrics : [],
+        reviewQueue: Array.isArray(payload?.reviewQueue) ? payload.reviewQueue : [],
+        updatedAt: payload?.updatedAt || new Date().toISOString(),
+        source: payload?.source || 'benchmark-file',
+      });
+      setSelectedItemId(null);
+      setReviewForm({
+        actualIntentKey: 'general',
+        notes: '',
+      });
+      setMessage('โหลด benchmark file เรียบร้อยแล้ว');
+    } catch (fetchError) {
+      setError(fetchError.message === 'session_expired' ? 'เซสชันหมดอายุ โปรดเข้าสู่ระบบใหม่' : fetchError.message);
+    } finally {
+      setBenchmarkLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     void loadEvaluation();
@@ -2227,15 +2265,33 @@ function EvaluationView({ search, dateRange }) {
           description="เลือกคำตอบจริงของแต่ละคำถาม แล้วระบบจะคำนวณ metric ให้ใหม่"
         >
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm text-slate-500">คลิกรายการทางซ้ายเพื่อแก้ label จริง</p>
-            <button
-              type="button"
-              onClick={() => void loadEvaluation()}
-              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
-              รีเฟรช
-            </button>
+            <div className="space-y-1">
+              <p className="text-sm text-slate-500">คลิกรายการทางซ้ายเพื่อแก้ label จริง</p>
+              {state.source ? (
+                <p className="text-xs font-medium text-slate-400">
+                  แหล่งข้อมูล: {state.source === 'benchmark-file' ? 'benchmark file' : 'ข้อมูลจริง'}
+                </p>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void loadBenchmarkSummary()}
+                disabled={benchmarkLoading}
+                className="inline-flex items-center gap-2 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Target size={16} className={benchmarkLoading ? 'animate-pulse' : ''} />
+                โหลด Benchmark
+              </button>
+              <button
+                type="button"
+                onClick={() => void loadEvaluation()}
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                <RefreshCcw size={16} className={loading ? 'animate-spin' : ''} />
+                รีเฟรช
+              </button>
+            </div>
           </div>
 
           <div className="mt-4 max-h-[72vh] space-y-3 overflow-y-auto pr-1">

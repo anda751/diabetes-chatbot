@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import { readFileSync } from "node:fs";
 import {
   createHmac,
   randomBytes,
@@ -1241,6 +1242,153 @@ function getIntentDisplayLabel(intentKey) {
   return INTENT_DISPLAY_LABELS[intentKey] || "คำถามทั่วไป";
 }
 
+const BENCHMARK_INTENT_ORDER = [
+  "general",
+  "greeting",
+  "food",
+  "glucose",
+  "symptom",
+  "exercise",
+  "medicine",
+  "report",
+];
+
+function parseCsvText(text) {
+  const cleanText = String(text || "").replace(/^\uFEFF/, "");
+  const rows = [];
+  let currentRow = [];
+  let currentCell = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < cleanText.length; index += 1) {
+    const character = cleanText[index];
+    const nextCharacter = cleanText[index + 1];
+
+    if (inQuotes) {
+      if (character === '"') {
+        if (nextCharacter === '"') {
+          currentCell += '"';
+          index += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        currentCell += character;
+      }
+      continue;
+    }
+
+    if (character === '"') {
+      inQuotes = true;
+      continue;
+    }
+
+    if (character === ',') {
+      currentRow.push(currentCell);
+      currentCell = '';
+      continue;
+    }
+
+    if (character === '\n') {
+      currentRow.push(currentCell);
+      rows.push(currentRow);
+      currentRow = [];
+      currentCell = '';
+      continue;
+    }
+
+    if (character === '\r') {
+      continue;
+    }
+
+    currentCell += character;
+  }
+
+  if (currentCell.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentCell);
+    rows.push(currentRow);
+  }
+
+  return rows;
+}
+
+function buildBenchmarkEvaluation(rows = []) {
+  const labelSet = new Set(BENCHMARK_INTENT_ORDER);
+  for (const row of rows) {
+    labelSet.add(String(row.expected_intent_key || row.expectedIntentKey || "").trim().toLowerCase());
+    labelSet.add(String(row.predicted_intent_key || row.predictedIntentKey || "").trim().toLowerCase());
+  }
+
+  const labels = [...labelSet].filter(Boolean);
+  const labelIndex = new Map(labels.map((label, index) => [label, index]));
+  const matrix = labels.map(() => labels.map(() => 0));
+
+  const normalizedRows = rows.map((row) => ({
+    actualIntentKey: String(row.expected_intent_key || row.expectedIntentKey || "").trim().toLowerCase(),
+    predictedIntentKey: String(row.predicted_intent_key || row.predictedIntentKey || "").trim().toLowerCase(),
+  }));
+
+  for (const row of normalizedRows) {
+    const actualIndex = labelIndex.get(row.actualIntentKey);
+    const predictedIndex = labelIndex.get(row.predictedIntentKey);
+    if (actualIndex == null || predictedIndex == null) continue;
+    matrix[actualIndex][predictedIndex] += 1;
+  }
+
+  const perClass = labels.map((label, rowIndex) => {
+    const tp = matrix[rowIndex][rowIndex];
+    const fn = matrix[rowIndex].reduce(
+      (sum, value, columnIndex) => (columnIndex === rowIndex ? sum : sum + value),
+      0
+    );
+    const fp = matrix.reduce(
+      (sum, currentRow, currentRowIndex) => (currentRowIndex === rowIndex ? sum : sum + currentRow[rowIndex]),
+      0
+    );
+    const support = matrix[rowIndex].reduce((sum, value) => sum + value, 0);
+    const precision = tp + fp ? tp / (tp + fp) : 0;
+    const recall = tp + fn ? tp / (tp + fn) : 0;
+    const f1 = precision + recall ? (2 * precision * recall) / (precision + recall) : 0;
+
+    return {
+      intentKey: label,
+      label: getIntentDisplayLabel(label),
+      support,
+      tp,
+      fp,
+      fn,
+      precision,
+      recall,
+      f1,
+    };
+  });
+
+  const total = normalizedRows.length;
+  const correct = matrix.reduce((sum, currentRow, index) => sum + (currentRow[index] || 0), 0);
+  const accuracy = total ? correct / total : 0;
+  const macroPrecision = perClass.length
+    ? perClass.reduce((sum, item) => sum + item.precision, 0) / perClass.length
+    : 0;
+  const macroRecall = perClass.length
+    ? perClass.reduce((sum, item) => sum + item.recall, 0) / perClass.length
+    : 0;
+  const macroF1 = perClass.length ? perClass.reduce((sum, item) => sum + item.f1, 0) / perClass.length : 0;
+
+  return {
+    labels,
+    matrix,
+    perClass,
+    summary: {
+      total,
+      correct,
+      accuracy,
+      macroPrecision,
+      macroRecall,
+      macroF1,
+    },
+  };
+}
+
 async function recordChatLog({ userId, message, intentKey, responseModel, usedFallback }) {
   const questionText = normalizeText(message);
   if (!questionText) return null;
@@ -2162,6 +2310,75 @@ app.get("/api/admin/evaluation", requireAdminAuth, async (req, res) => {
   } catch (error) {
     console.error("Fetch admin evaluation error:", error);
     res.status(500).json({ error: "ดึงข้อมูลประเมินความถูกต้องไม่สำเร็จ" });
+  }
+});
+
+app.get("/api/admin/evaluation/benchmark", requireAdminAuth, async (_req, res) => {
+  try {
+    const csvText = readFileSync(new URL("./generated/evaluation-benchmark-1000.csv", import.meta.url), "utf8");
+    const rows = parseCsvText(csvText);
+
+    if (rows.length < 2) {
+      return res.status(404).json({ error: "ไม่พบไฟล์ benchmark หรือไฟล์ยังไม่มีข้อมูล" });
+    }
+
+    const [headerRow, ...dataRows] = rows;
+    const headerIndex = new Map(headerRow.map((value, index) => [String(value || "").trim(), index]));
+    const expectedIndex = headerIndex.get("expected_intent_key");
+    const predictedIndex = headerIndex.get("predicted_intent_key");
+
+    if (expectedIndex == null || predictedIndex == null) {
+      return res.status(400).json({ error: "ไฟล์ benchmark ต้องมีคอลัมน์ expected_intent_key และ predicted_intent_key" });
+    }
+
+    const benchmarkRows = dataRows
+      .filter((row) => row.some((cell) => String(cell || "").trim() !== ""))
+      .map((row) => ({
+        expected_intent_key: String(row[expectedIndex] || "").trim().toLowerCase(),
+        predicted_intent_key: String(row[predictedIndex] || "").trim().toLowerCase(),
+      }))
+      .filter((row) => row.expected_intent_key && row.predicted_intent_key);
+
+    const evaluation = buildBenchmarkEvaluation(benchmarkRows);
+    const labels = evaluation.labels.map((intentKey) => ({
+      intentKey,
+      label: getIntentDisplayLabel(intentKey),
+    }));
+
+    res.json({
+      summary: {
+        totalReviewed: evaluation.summary.total,
+        accuracy: Number(evaluation.summary.accuracy.toFixed(3)),
+        macroPrecision: Number(evaluation.summary.macroPrecision.toFixed(3)),
+        macroRecall: Number(evaluation.summary.macroRecall.toFixed(3)),
+        macroF1: Number(evaluation.summary.macroF1.toFixed(3)),
+      },
+      labels,
+      confusionMatrix: {
+        labels,
+        rows: evaluation.labels.map((actualIntentKey, rowIndex) => ({
+          actualIntentKey,
+          actualLabel: getIntentDisplayLabel(actualIntentKey),
+          cells: evaluation.labels.map((predictedIntentKey, columnIndex) => ({
+            predictedIntentKey,
+            predictedLabel: getIntentDisplayLabel(predictedIntentKey),
+            count: evaluation.matrix[rowIndex][columnIndex],
+          })),
+        })),
+      },
+      classMetrics: evaluation.perClass.map((item) => ({
+        ...item,
+        precision: Number(item.precision.toFixed(3)),
+        recall: Number(item.recall.toFixed(3)),
+        f1: Number(item.f1.toFixed(3)),
+      })),
+      reviewQueue: [],
+      updatedAt: new Date().toISOString(),
+      source: "benchmark-file",
+    });
+  } catch (error) {
+    console.error("Fetch admin benchmark evaluation error:", error);
+    res.status(500).json({ error: "อ่านไฟล์ benchmark ไม่สำเร็จ" });
   }
 });
 

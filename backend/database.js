@@ -172,8 +172,14 @@ export async function initDB() {
       intent_key TEXT DEFAULT 'general',
       response_model TEXT DEFAULT '',
       used_fallback BOOLEAN DEFAULT FALSE,
+      response_text TEXT DEFAULT '',
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
+  `);
+
+  await db.exec(`
+    ALTER TABLE ai_chat_logs
+    ADD COLUMN IF NOT EXISTS response_text TEXT DEFAULT ''
   `);
 
   await db.exec(`

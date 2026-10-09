@@ -21,7 +21,11 @@
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "pg": "^8.16.3"
+    "mammoth": "^1.13.0",
+    "multer": "^2.4.0",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.16.3",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "typescript": "^6.0.3"

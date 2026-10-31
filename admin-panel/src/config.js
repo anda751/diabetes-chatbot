@@ -9,4 +9,4 @@ const fallbackApiUrl = import.meta.env.DEV
     ? localApiUrl
     : "/api";
 
-export const API_URL = configuredApiUrl || fallbackApiUrl;
+export const API_URL = isLocalHost ? localApiUrl : configuredApiUrl || fallbackApiUrl;

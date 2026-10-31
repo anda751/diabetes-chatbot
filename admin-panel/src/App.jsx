@@ -890,6 +890,8 @@ function KnowledgeView({ search }) {
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importIntentKey, setImportIntentKey] = useState('general');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -1064,6 +1066,39 @@ function KnowledgeView({ search }) {
     }
   };
 
+  const handleDocumentImport = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setImporting(true);
+    setError('');
+    setMessage('');
+
+    try {
+      const body = new FormData();
+      body.append('file', file);
+      body.append('intentKey', importIntentKey);
+
+      const response = await fetch(`${API_URL}/admin/knowledge/import`, {
+        method: 'POST',
+        credentials: 'include',
+        body,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || 'นำเข้าเอกสารไม่สำเร็จ');
+      }
+
+      setMessage(result?.message || 'นำเข้าเอกสารเรียบร้อยแล้ว');
+      await loadKnowledge();
+    } catch (importError) {
+      setError(importError.message || 'นำเข้าเอกสารไม่สำเร็จ');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <section className="mt-7 grid grid-cols-[0.9fr_1.1fr] gap-6">
       <Panel
@@ -1071,6 +1106,41 @@ function KnowledgeView({ search }) {
         description="เพิ่มข้อมูลหรือแนวทางใหม่ให้แชทบอทนำไปใช้ตอบได้จริง"
       >
         <form className="space-y-4" onSubmit={handleSubmit}>
+          <div className="rounded-2xl border border-dashed border-sky-300 bg-sky-50 p-4">
+            <p className="text-sm font-black text-sky-950">นำเข้าเอกสาร</p>
+            <p className="mt-1 text-xs leading-5 text-sky-800">
+              รองรับ TXT, MD, CSV, PDF และ DOCX ไม่เกิน 5 MB ระบบจะแบ่งเนื้อหาเป็นรายการ และปิดใช้งานไว้ให้ตรวจทานก่อน
+            </p>
+            <div className="mt-3 flex flex-wrap items-end gap-3">
+              <label className="block min-w-48 flex-1">
+                <span className="text-xs font-semibold text-sky-900">หมวดของเอกสาร</span>
+                <select
+                  value={importIntentKey}
+                  onChange={(event) => setImportIntentKey(event.target.value)}
+                  disabled={importing}
+                  className="mt-1 h-10 w-full rounded-xl border border-sky-200 bg-white px-3 text-sm font-medium text-slate-800 outline-none focus:border-sky-400 disabled:cursor-not-allowed"
+                >
+                  {knowledgeIntentOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl bg-sky-700 px-4 text-sm font-bold text-white transition hover:bg-sky-800">
+                <Upload size={16} />
+                {importing ? 'กำลังนำเข้า...' : 'เลือกเอกสาร'}
+                <input
+                  type="file"
+                  accept=".txt,.md,.csv,.pdf,.docx,text/plain,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  className="hidden"
+                  onChange={handleDocumentImport}
+                  disabled={importing}
+                />
+              </label>
+            </div>
+          </div>
+
           <label className="block">
             <span className="text-sm font-semibold text-slate-700">หัวข้อ</span>
             <input
@@ -1231,6 +1301,7 @@ function KnowledgeView({ search }) {
 
                     <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-400">
                       {item.tags ? <span>แท็ก: {item.tags}</span> : <span>ไม่มีแท็ก</span>}
+                      {item.sourceName ? <span>เอกสาร: {item.sourceName}</span> : null}
                       <span>อัปเดต {formatThaiDateTime(item.updatedAt)}</span>
                     </div>
                   </div>
@@ -2083,7 +2154,6 @@ function EvaluationView({ search, dateRange }) {
         credentials: 'include',
         headers: {
           'Content-Type': 'text/csv;charset=utf-8',
-          'X-Benchmark-Filename': file.name,
         },
         body: await file.text(),
       });

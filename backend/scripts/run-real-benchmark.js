@@ -20,7 +20,7 @@ const DEFAULT_INPUT_FILE = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
   "generated",
-  "evaluation-benchmark-1000.csv"
+  "evaluation-benchmark-diverse-100.csv"
 );
 
 const DEFAULT_OUTPUT_DIR = path.resolve(
@@ -323,15 +323,24 @@ async function main() {
   const outputJson = path.join(outputDir, "evaluation-benchmark-real-summary.json");
   const questions = readBenchmarkQuestions(inputFile);
 
+  console.log(`Loaded ${questions.length} benchmark questions from ${inputFile}`);
+
   await ensureHealthy(baseUrl);
 
   const credentials = createTempCredentials();
   const cookie = await registerAndLogin(baseUrl, credentials);
   const db = await initDB();
-  const results = [];
+  const results = new Array(questions.length);
+  const requestedConcurrency = Number.parseInt(String(process.env.BENCHMARK_CONCURRENCY || "10"), 10);
+  const concurrency = Math.min(Math.max(Number.isNaN(requestedConcurrency) ? 10 : requestedConcurrency, 1), 10);
 
   try {
-    for (let index = 0; index < questions.length; index += 1) {
+    console.log(`Running benchmark against ${baseUrl}`);
+    let nextIndex = 0;
+    let completed = 0;
+    const progressEvery = Math.max(1, Math.floor(questions.length / 10));
+
+    const evaluateQuestion = async (index) => {
       const item = questions[index];
       const expectedIntentKey = normalizeIntentKey(item.expectedIntentKey);
       const startedAt = Date.now();
@@ -339,6 +348,7 @@ async function main() {
       let predictedModel = "";
       let usedFallback = false;
       let chatLogId = null;
+      let responseText = "";
       let responsePreview = "";
       let errorMessage = "";
 
@@ -348,7 +358,8 @@ async function main() {
         predictedModel = String(response.model || "");
         usedFallback = response.usedFallback === true;
         chatLogId = Number(response.chatLogId) || null;
-        responsePreview = String(response.text || "").trim().slice(0, 160);
+        responseText = String(response.text || "").trim();
+        responsePreview = responseText.slice(0, 160);
 
         if (chatLogId) {
           await upsertChatEvaluation({
@@ -365,7 +376,7 @@ async function main() {
       const durationMs = Date.now() - startedAt;
       const isCorrect = predictedIntentKey === expectedIntentKey;
 
-      results.push({
+      results[index] = {
         row_id: index + 1,
         question_text: item.questionText,
         expected_intent_key: expectedIntentKey,
@@ -377,16 +388,27 @@ async function main() {
         chat_log_id: chatLogId || "",
         is_correct: isCorrect ? "TRUE" : "FALSE",
         response_time_ms: durationMs,
+        response_text: responseText,
         response_preview: responsePreview,
         error_message: errorMessage,
-      });
+      };
 
-      const progressEvery = Math.max(1, Math.floor(questions.length / 10));
-      if ((index + 1) % progressEvery === 0 || index === questions.length - 1) {
+      completed += 1;
+      if (completed % progressEvery === 0 || completed === questions.length) {
         const status = errorMessage ? "ERR" : isCorrect ? "OK" : "MISS";
-        console.log(`[${index + 1}/${questions.length}] ${status} ${item.expectedIntentKey} -> ${predictedIntentKey}`);
+        console.log(`[${completed}/${questions.length}] ${status} ${item.expectedIntentKey} -> ${predictedIntentKey}`);
       }
-    }
+    };
+
+    const worker = async () => {
+      while (nextIndex < questions.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        await evaluateQuestion(index);
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(concurrency, questions.length) }, worker));
 
     const metrics = buildMetrics(results);
     fs.mkdirSync(outputDir, { recursive: true });

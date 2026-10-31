@@ -264,8 +264,8 @@ flow:
 
 หมายเหตุ:
 
-- ตอนนี้ตั้งใจให้ใช้งานง่ายก่อน
-- ยังไม่ได้ทำ admin auth แยกแบบเต็มรูปแบบ
+- admin panel ใช้ admin session cookie แยกจาก user session
+- บัญชีแอดมินกำหนดผ่าน `ADMIN_USERNAME` และ `ADMIN_PASSWORD` ใน environment variables
 
 ## 7. Notification Architecture
 

@@ -1,27 +1,51 @@
-# Diabetes Chatbot
+# Today Care — Diabetes Care AI
 
-โครงสร้างโปรเจกต์หลัก
+เว็บแอปและ Android app สำหรับช่วยติดตามค่าน้ำตาล ตั้งเตือนมื้ออาหาร สนทนากับ AI และจัดการข้อมูลผ่านแผงผู้ดูแลระบบ
 
-- `frontend/` แอปหลักฝั่งผู้ใช้งานบนเว็บ/มือถือ
-- `admin-panel/` แผงควบคุมสำหรับผู้ดูแลระบบ
-- `backend/` API, ฐานข้อมูล, และ business logic หลัก
-- `android/` โปรเจกต์ Android ที่สร้างจาก Capacitor
-- `api/` endpoint สำหรับ deployment บางสภาพแวดล้อม
-- `docs/` เอกสารการ build, deploy, และสถาปัตยกรรมระบบ
+## ความสามารถหลัก
 
-ไฟล์สำคัญ
+- สมัครสมาชิก/เข้าสู่ระบบด้วย session cookie
+- บันทึกและดูประวัติค่าน้ำตาล
+- ผู้ช่วย Gemini AI พร้อมบริบทสุขภาพของผู้ใช้
+- ตั้งการแจ้งเตือนมื้ออาหารและ Web Push / Android local notification
+- รายงานและคำถามยอดนิยม
+- Admin panel สำหรับสถิติ ผู้ใช้ บันทึกข้อมูล ความรู้ และประเมินคำตอบ AI
 
-- `package.json` คำสั่งหลักของ workspace
-- `capacitor.config.ts` การเชื่อมเว็บกับ Android
-- `vercel.json` การ deploy ฝั่ง frontend
-- `.gitignore` รายการไฟล์ local/build/secret ที่ไม่ควรขึ้น Git
+## โครงสร้าง
 
-แนวทางจัด repo
+| โฟลเดอร์ | หน้าที่ |
+| --- | --- |
+| `frontend/` | React + Vite สำหรับผู้ใช้ทั่วไป |
+| `admin-panel/` | React + Vite สำหรับผู้ดูแล |
+| `backend/` | Express API, business logic และ Supabase Postgres |
+| `android/` | Android shell ที่ Capacitor สร้าง |
+| `docs/` | เอกสารระบบและการ deploy |
 
-- เก็บเฉพาะ source code, config, และเอกสารที่จำเป็น
-- ไม่ commit ไฟล์ build, APK, keystore, cookies, logs, หรือไฟล์ export ชั่วคราว
-- เอกสารควรรวมไว้ใน `docs/` เพื่อลดความรกที่ root
+## เริ่มต้นใช้งานในเครื่อง
 
-หมายเหตุ
+1. ติดตั้ง dependencies: `npm install`, `npm --prefix backend install`, `npm --prefix frontend install`, และ `npm --prefix admin-panel install`
+2. คัดลอก `backend/.env.example` เป็น `backend/.env` แล้วใส่ค่า environment variables ที่จำเป็น
+3. เปิด backend: `npm run dev:backend`
+4. เปิด frontend ใน terminal อื่น: `npm run dev:frontend`
+5. เปิด `http://localhost:5173`
 
-- โฟลเดอร์ฝั่งผู้ใช้งานใช้ชื่อ `frontend/` และถูกอ้างอิงตรงกันใน config หลักของโปรเจกต์
+ตรวจ API ได้ที่ `http://localhost:5000/api/health`
+
+## เอกสาร
+
+- [Architecture](docs/SYSTEM_ARCHITECTURE.md)
+- [API reference](docs/API_DOCUMENTATION.md)
+- [Database schema](docs/DATABASE_SCHEMA.md)
+- [Setup and configuration](docs/SETUP_CONFIGURATION.md)
+- [Code standards](docs/CODE_STANDARDS.md)
+- [Known issues and roadmap](docs/KNOWN_ISSUES_AND_ROADMAP.md)
+- [Source code guide](docs/SOURCE_CODE_GUIDE.md)
+- [Dataset and evaluation guide](docs/DATASET_GUIDE.md)
+- [Libraries and dependencies](docs/LIBRARIES_AND_DEPENDENCIES.md)
+- [Development workflow](docs/DEVELOPMENT_WORKFLOW.md)
+- [Deploy backend to Railway](docs/RAILWAY_BACKEND_DEPLOY.md)
+- [Deploy frontend to Vercel](docs/VERCEL_DEPLOY.md)
+
+## Production
+
+Frontend deploy บน Vercel, backend deploy บน Railway และฐานข้อมูลอยู่บน Supabase Postgres. URL และ secrets ต้องตั้งผ่าน environment variables เท่านั้น; ห้าม commit ไฟล์ `.env` หรือ credential ขึ้น repository.

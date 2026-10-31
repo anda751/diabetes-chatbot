@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import {
   createHmac,
   randomBytes,
@@ -10,6 +11,9 @@ import {
 } from "node:crypto";
 import { promisify } from "node:util";
 import { GoogleGenAI } from "@google/genai";
+import multer from "multer";
+import mammoth from "mammoth";
+import { PDFParse } from "pdf-parse";
 import webpush from "web-push";
 import {
   exportAdminAnomaliesCsv,
@@ -137,6 +141,14 @@ app.use(
 );
 app.use(express.json({ limit: "10mb" }));
 app.use(express.text({ type: ["text/plain", "text/csv"], limit: "10mb" }));
+
+const KNOWLEDGE_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024;
+const KNOWLEDGE_DOCUMENT_MAX_CHARS = 50000;
+const KNOWLEDGE_CHUNK_MAX_CHARS = 2200;
+const KNOWLEDGE_DOCUMENT_UPLOAD = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: KNOWLEDGE_DOCUMENT_MAX_BYTES, files: 1 },
+});
 
 const scrypt = promisify(scryptCallback);
 const GEMINI_MODELS = [...new Set([
@@ -1207,6 +1219,7 @@ const INTENT_DISPLAY_LABELS = {
   medicine: "ยาและการรักษา",
   report: "ความรู้เรื่องโรค",
   general: "คำถามทั่วไป",
+  greeting: "ทักทาย",
 };
 
 function normalizePopularQuestionCategory(rawCategory) {
@@ -1247,7 +1260,71 @@ function formatKnowledgeEntry(entry) {
     sortOrder: Number(entry?.sort_order ?? entry?.sortOrder) || 0,
     createdAt: entry?.created_at || entry?.createdAt || null,
     updatedAt: entry?.updated_at || entry?.updatedAt || null,
+    sourceName: normalizeText(entry?.source_name || entry?.sourceName),
+    sourceType: normalizeText(entry?.source_type || entry?.sourceType),
   };
+}
+
+function getKnowledgeDocumentKind(file) {
+  const extension = path.extname(String(file?.originalname || "")).toLowerCase();
+  if ([".txt", ".md"].includes(extension)) return "text";
+  if (extension === ".csv") return "csv";
+  if (extension === ".pdf") return "pdf";
+  if (extension === ".docx") return "docx";
+  return "";
+}
+
+function splitKnowledgeDocumentText(rawText, maxLength = KNOWLEDGE_CHUNK_MAX_CHARS) {
+  const text = String(rawText || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[\t ]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!text) return [];
+
+  const chunks = [];
+  let current = "";
+  for (const paragraph of text.split(/\n{2,}/)) {
+    const cleanParagraph = paragraph.replace(/\s+/g, " ").trim();
+    if (!cleanParagraph) continue;
+
+    const pieces = cleanParagraph.length <= maxLength
+      ? [cleanParagraph]
+      : cleanParagraph.match(new RegExp(`.{1,${maxLength}}(?:\\s|$)`, "g")) || [cleanParagraph];
+
+    for (const piece of pieces) {
+      const cleanPiece = piece.trim();
+      if (!cleanPiece) continue;
+      const candidate = current ? `${current}\n\n${cleanPiece}` : cleanPiece;
+      if (candidate.length > maxLength && current) {
+        chunks.push(current);
+        current = cleanPiece;
+      } else {
+        current = candidate;
+      }
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks.slice(0, 25);
+}
+
+async function extractKnowledgeDocumentText(file, kind) {
+  if (!file?.buffer?.length) throw new Error("ไม่พบข้อมูลไฟล์");
+  if (kind === "text" || kind === "csv") return file.buffer.toString("utf8");
+  if (kind === "docx") {
+    const result = await mammoth.extractRawText({ buffer: file.buffer });
+    return result.value || "";
+  }
+  if (kind === "pdf") {
+    const parser = new PDFParse({ data: file.buffer });
+    try {
+      const result = await parser.getText();
+      return result.text || "";
+    } finally {
+      await parser.destroy();
+    }
+  }
+  throw new Error("รองรับเฉพาะไฟล์ TXT, MD, CSV, PDF และ DOCX");
 }
 
 async function getRelevantKnowledgeEntries(intentKey, limit = 4) {
@@ -1255,7 +1332,7 @@ async function getRelevantKnowledgeEntries(intentKey, limit = 4) {
   const limitValue = Number.isFinite(Number(limit)) ? Math.min(Math.max(Number(limit), 1), 10) : 4;
 
   const entries = await db.all(
-    `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at
+    `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, source_name, source_type, created_at, updated_at
      FROM knowledge_entries
      WHERE is_enabled = TRUE
        AND (intent_key = ? OR intent_key = 'general')
@@ -2631,7 +2708,7 @@ app.delete("/api/admin/evaluation/:chatLogId", requireAdminAuth, async (req, res
 app.get("/api/admin/knowledge", requireAdminAuth, async (_req, res) => {
   try {
     const rows = await db.all(
-      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at
+      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, source_name, source_type, created_at, updated_at
        FROM knowledge_entries
        ORDER BY is_enabled DESC, sort_order DESC, updated_at DESC, id DESC`
     );
@@ -2660,8 +2737,8 @@ app.post("/api/admin/knowledge", requireAdminAuth, async (req, res) => {
     }
 
     const result = await db.run(
-      `INSERT INTO knowledge_entries (title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+      `INSERT INTO knowledge_entries (title, content, intent_key, tags, is_enabled, sort_order, source_name, source_type, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, '', '', NOW(), NOW())`,
       [
         payload.title,
         payload.content,
@@ -2673,7 +2750,7 @@ app.post("/api/admin/knowledge", requireAdminAuth, async (req, res) => {
     );
 
     const created = await db.get(
-      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at
+      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, source_name, source_type, created_at, updated_at
        FROM knowledge_entries
        WHERE id = ?`,
       [result?.lastID]
@@ -2689,6 +2766,78 @@ app.post("/api/admin/knowledge", requireAdminAuth, async (req, res) => {
   }
 });
 
+app.post("/api/admin/knowledge/import", requireAdminAuth, (req, res) => {
+  KNOWLEDGE_DOCUMENT_UPLOAD.single("file")(req, res, async (uploadError) => {
+    if (uploadError) {
+      const message = uploadError.code === "LIMIT_FILE_SIZE"
+        ? "ไฟล์มีขนาดเกิน 5 MB"
+        : "อัปโหลดเอกสารไม่สำเร็จ";
+      return res.status(400).json({ error: message });
+    }
+
+    try {
+      const file = req.file;
+      const kind = getKnowledgeDocumentKind(file);
+      if (!file || !kind) {
+        return res.status(400).json({ error: "รองรับเฉพาะไฟล์ TXT, MD, CSV, PDF และ DOCX" });
+      }
+
+      const extractedText = await extractKnowledgeDocumentText(file, kind);
+      if (!normalizeText(extractedText)) {
+        return res.status(400).json({ error: "ไม่พบข้อความในเอกสาร โปรดใช้ PDF ที่เลือกข้อความได้" });
+      }
+      if (extractedText.length > KNOWLEDGE_DOCUMENT_MAX_CHARS) {
+        return res.status(400).json({ error: "เอกสารยาวเกิน 50,000 ตัวอักษร โปรดแบ่งไฟล์ก่อนนำเข้า" });
+      }
+
+      const chunks = splitKnowledgeDocumentText(extractedText);
+      if (!chunks.length) {
+        return res.status(400).json({ error: "ไม่สามารถแบ่งข้อความจากเอกสารได้" });
+      }
+
+      const intentKey = normalizeKnowledgeIntent(req.body?.intentKey);
+      const baseTitle = (path.basename(file.originalname, path.extname(file.originalname)) || "เอกสารนำเข้า")
+        .slice(0, 100);
+      const tags = `นำเข้าจากเอกสาร, ${kind}`;
+      const items = [];
+
+      for (const [index, content] of chunks.entries()) {
+        const result = await db.run(
+          `INSERT INTO knowledge_entries
+           (title, content, intent_key, tags, is_enabled, sort_order, source_name, source_type, created_at, updated_at)
+           VALUES (?, ?, ?, ?, FALSE, ?, ?, ?, NOW(), NOW())`,
+          [
+            `${baseTitle} — ส่วน ${index + 1}`,
+            content,
+            intentKey,
+            tags,
+            chunks.length - index,
+            file.originalname,
+            kind,
+          ]
+        );
+        const created = await db.get(
+          `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, source_name, source_type, created_at, updated_at
+           FROM knowledge_entries
+           WHERE id = ?`,
+          [result?.lastID]
+        );
+        if (created) items.push(formatKnowledgeEntry(created));
+      }
+
+      return res.status(201).json({
+        status: "success",
+        message: `นำเข้า ${items.length} ส่วนแล้ว กรุณาตรวจทานก่อนเปิดใช้งาน`,
+        items,
+        sourceName: file.originalname,
+      });
+    } catch (error) {
+      console.error("Import admin knowledge error:", error);
+      return res.status(500).json({ error: "อ่านเอกสารไม่สำเร็จ" });
+    }
+  });
+});
+
 app.patch("/api/admin/knowledge/:id", requireAdminAuth, async (req, res) => {
   const id = Number.parseInt(String(req.params?.id), 10);
 
@@ -2698,7 +2847,7 @@ app.patch("/api/admin/knowledge/:id", requireAdminAuth, async (req, res) => {
     }
 
     const existing = await db.get(
-      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at
+      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, source_name, source_type, created_at, updated_at
        FROM knowledge_entries
        WHERE id = ?`,
       [id]
@@ -2746,7 +2895,7 @@ app.patch("/api/admin/knowledge/:id", requireAdminAuth, async (req, res) => {
     );
 
     const updated = await db.get(
-      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, created_at, updated_at
+      `SELECT id, title, content, intent_key, tags, is_enabled, sort_order, source_name, source_type, created_at, updated_at
        FROM knowledge_entries
        WHERE id = ?`,
       [id]

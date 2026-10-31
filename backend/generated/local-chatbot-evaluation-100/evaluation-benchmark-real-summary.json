@@ -1,0 +1,84 @@
+{
+  "baseUrl": "http://127.0.0.1:5000",
+  "inputFile": "C:\\my-chat-bot\\backend\\generated\\evaluation-benchmark-diverse-100.csv",
+  "outputCsv": "C:\\my-chat-bot\\backend\\generated\\local-chatbot-evaluation-100\\evaluation-benchmark-real-results.csv",
+  "credentials": {
+    "username": "bzvckd346zs8i"
+  },
+  "summary": {
+    "total": 100,
+    "correct": 91,
+    "incorrect": 9,
+    "accuracy": 0.91,
+    "macroPrecision": 0.9149,
+    "macroRecall": 0.9119,
+    "macroF1": 0.909
+  },
+  "perClass": [
+    {
+      "intentKey": "greeting",
+      "label": "ทักทาย",
+      "precision": 0.9,
+      "recall": 0.6923,
+      "f1": 0.7826,
+      "support": 13
+    },
+    {
+      "intentKey": "food",
+      "label": "แนะนำอาหาร",
+      "precision": 0.8125,
+      "recall": 1,
+      "f1": 0.8966,
+      "support": 13
+    },
+    {
+      "intentKey": "glucose",
+      "label": "ประเมินค่าน้ำตาล",
+      "precision": 0.9091,
+      "recall": 0.7692,
+      "f1": 0.8333,
+      "support": 13
+    },
+    {
+      "intentKey": "symptom",
+      "label": "อาการผิดปกติ",
+      "precision": 0.9286,
+      "recall": 1,
+      "f1": 0.963,
+      "support": 13
+    },
+    {
+      "intentKey": "exercise",
+      "label": "ออกกำลังกาย",
+      "precision": 0.9231,
+      "recall": 1,
+      "f1": 0.96,
+      "support": 12
+    },
+    {
+      "intentKey": "medicine",
+      "label": "ยาและการรักษา",
+      "precision": 1,
+      "recall": 1,
+      "f1": 1,
+      "support": 12
+    },
+    {
+      "intentKey": "report",
+      "label": "รายงานสุขภาพ",
+      "precision": 1,
+      "recall": 0.9167,
+      "f1": 0.9565,
+      "support": 12
+    },
+    {
+      "intentKey": "general",
+      "label": "คำถามทั่วไป",
+      "precision": 0.8462,
+      "recall": 0.9167,
+      "f1": 0.88,
+      "support": 12
+    }
+  ],
+  "generatedAt": "2026-10-08T18:27:55.777Z"
+}

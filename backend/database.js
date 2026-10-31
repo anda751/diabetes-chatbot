@@ -250,6 +250,16 @@ export async function initDB() {
     ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
   `);
 
+  await db.exec(`
+    ALTER TABLE knowledge_entries
+    ADD COLUMN IF NOT EXISTS source_name TEXT DEFAULT ''
+  `);
+
+  await db.exec(`
+    ALTER TABLE knowledge_entries
+    ADD COLUMN IF NOT EXISTS source_type TEXT DEFAULT ''
+  `);
+
   console.log("Database Ready: Connected to Postgres and ensured tables exist.");
   return db;
 }

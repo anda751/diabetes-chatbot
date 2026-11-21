@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      name="description"
+      content="Today Care — A Thai health-support app connecting glucose records, meal reminders, an AI assistant, and an administrator workspace. A full-stack engineering case study with real UI screenshots and scoped verification. "
+    />
+    <meta name="theme-color" content="#142d49" />
+    <meta property="og:title" content="Today Care — Full-stack case study" />
+    <meta
+      property="og:description"
+      content="A Thai health-support app connecting glucose records, meal reminders, an AI assistant, and an administrator workspace."
+    />
+    <meta
+      property="og:image"
+      content="https://today-care-case-study.vercel.app/assets/cover.png"
+    />
+    <meta property="og:type" content="website" />
+    <title>Today Care — Full-stack case study</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="app.js" defer></script>
+  </head>
+  <body style="--accent: #1763c5; --soft: #e6f0fe; --ink: #142d49">
+    <a class="skip" href="#main">Skip to content</a>
+    <header>
+      <div class="nav wrap">
+        <a class="brand" href="#main"
+          >Today Care<small>FULL-STACK CASE STUDY</small></a
+        >
+        <nav aria-label="Main navigation">
+          <a href="#overview">Overview</a><a href="#screens">Screens</a
+          ><a href="https://github.com/anda751/diabetes-chatbot">GitHub ↗</a>
+        </nav>
+      </div>
+    </header>
+    <main id="main">
+      <section class="hero wrap">
+        <div>
+          <p class="eyebrow">Today Care / HEALTH SUPPORT · WEB + ANDROID</p>
+          <h1>Daily care, connected.</h1>
+          <p class="lead">
+            A Thai health-support app connecting glucose records, meal
+            reminders, an AI assistant, and an administrator workspace.
+          </p>
+          <div class="actions">
+            <a class="button" href="#screens">Explore the screens ↓</a
+            ><a
+              class="button secondary"
+              href="https://github.com/anda751/diabetes-chatbot"
+              >View source ↗</a
+            >
+          </div>
+          <p class="note">
+            Portfolio project · Thai interface · Synthetic demo data
+          </p>
+        </div>
+        <div class="hero-visual mobile">
+          <div class="window">
+            <div class="windowbar">
+              <span>Today Care / User workspace</span
+              ><span>SCREEN PREVIEW</span>
+            </div>
+            <img
+              src="assets/mobile.png"
+              width="390"
+              height="844"
+              alt="Today Care application screen with synthetic demo data"
+              fetchpriority="high"
+            />
+          </div>
+          <span class="visual-label"
+            >Actual application UI. All displayed data is synthetic.</span
+          >
+        </div>
+      </section>
+      <dl class="meta wrap">
+        <div>
+          <dt>Scope</dt>
+          <dd>Frontend, API & database</dd>
+        </div>
+        <div>
+          <dt>Interface</dt>
+          <dd>Thai · Responsive web · Android</dd>
+        </div>
+        <div>
+          <dt>Evidence</dt>
+          <dd>Builds, tests & TLS check</dd>
+        </div>
+        <div>
+          <dt>Review</dt>
+          <dd>21 November 2026</dd>
+        </div>
+      </dl>
+      <section id="overview" class="section wrap">
+        <div class="intro-grid">
+          <div>
+            <p class="eyebrow">01 / THE PROBLEM</p>
+            <h2>
+              A daily record is only useful when it is easy to find again.
+            </h2>
+            <p class="body">
+              The project brings health logs, reminder settings, and educational
+              chat into one mobile-oriented experience. An administrator
+              interface provides a separate place to review usage, knowledge
+              content, and response evaluation.
+            </p>
+          </div>
+          <div class="role-list">
+            <article class="role">
+              <h3>User</h3>
+              <p>
+                Record glucose before or after meals, review recent trends, set
+                meal reminders, and ask the assistant questions.
+              </p>
+            </article>
+            <article class="role">
+              <h3>Administrator</h3>
+              <p>
+                Review aggregated activity, manage knowledge content, inspect
+                records, and evaluate assistant responses.
+              </p>
+            </article>
+          </div>
+        </div>
+        <ol class="flow">
+          <li><span>01</span><strong>Open the daily dashboard</strong></li>
+          <li><span>02</span><strong>Record and review glucose</strong></li>
+          <li><span>03</span><strong>Set meal reminders</strong></li>
+          <li>
+            <span>04</span><strong>Explore history and educational chat</strong>
+          </li>
+        </ol>
+      </section>
+      <section class="section wrap" id="engineering">
+        <p class="eyebrow">02 / ENGINEERING DECISIONS</p>
+        <h2>What connects the experience.</h2>
+        <p class="body">
+          The interface is one part of the project. These decisions explain how
+          the implementation supports its workflow.
+        </p>
+        <div class="cards">
+          <article class="card">
+            <span class="number">DECISION 01</span>
+            <h3>One record, two clients</h3>
+            <p>
+              React powers the web experience; Capacitor provides the Android
+              shell and native notification integration.
+            </p>
+          </article>
+          <article class="card">
+            <span class="number">DECISION 02</span>
+            <h3>Private records, server sessions</h3>
+            <p>
+              An Express API uses signed HttpOnly session cookies and
+              authenticated routes. Database access stays on the server.
+            </p>
+          </article>
+          <article class="card">
+            <span class="number">DECISION 03</span>
+            <h3>AI with a visible scope</h3>
+            <p>
+              Gemini supports the educational chat workflow. The project is
+              health-support software and does not establish clinical safety or
+              effectiveness.
+            </p>
+          </article>
+        </div>
+        <div class="architecture" aria-label="Technology layers">
+          <div>
+            <strong>Frontend</strong>
+            <p>React · Vite · Tailwind CSS · Recharts</p>
+          </div>
+          <div>
+            <strong>Android</strong>
+            <p>Capacitor · Local notifications</p>
+          </div>
+          <div>
+            <strong>API</strong>
+            <p>Node.js · Express · Signed sessions</p>
+          </div>
+          <div>
+            <strong>Data & AI</strong>
+            <p>Supabase PostgreSQL · Gemini</p>
+          </div>
+        </div>
+      </section>
+      <section class="section wrap" id="screens">
+        <div class="gallery-head">
+          <div>
+            <p class="eyebrow">03 / DEMO GALLERY</p>
+            <h2>See the working interface.</h2>
+          </div>
+          <p>
+            Captured from local production builds with intercepted synthetic API
+            responses. Select a view, then click the image to enlarge it.
+          </p>
+        </div>
+        <div
+          class="tabs"
+          role="group"
+          aria-label="Choose an application screen"
+        >
+          <button type="button" data-screen="0" aria-pressed="true">
+            Daily dashboard</button
+          ><button type="button" data-screen="1" aria-pressed="false">
+            Glucose summary</button
+          ><button type="button" data-screen="2" aria-pressed="false">
+            Administrator workspace</button
+          ><button type="button" data-screen="3" aria-pressed="false">
+            Desktop presentation
+          </button>
+        </div>
+        <figure>
+          <div class="gallery-frame">
+            <button
+              id="zoom"
+              type="button"
+              aria-label="Enlarge Daily dashboard"
+            >
+              <img
+                id="screen-image"
+                src="assets/mobile.png"
+                alt="Daily dashboard — actual application UI with synthetic data"
+                loading="lazy"
+                width="390"
+                height="844"
+              />
+            </button>
+          </div>
+          <figcaption class="caption" aria-live="polite">
+            <strong id="screen-title">Daily dashboard</strong
+            ><span id="screen-description"
+              >The mobile dashboard presents recent readings and the daily care
+              entry points.</span
+            >
+          </figcaption>
+        </figure>
+        <noscript
+          ><p class="noscript">
+            JavaScript is disabled. Open any screenshot directly:
+          </p>
+          <ul>
+            <li><a href="assets/mobile.png">Daily dashboard</a></li>
+            <li><a href="assets/report.png">Glucose summary</a></li>
+            <li><a href="assets/admin.png">Administrator workspace</a></li>
+            <li><a href="assets/dashboard.png">Desktop presentation</a></li>
+          </ul></noscript
+        >
+      </section>
+      <section class="section wrap" id="verification">
+        <p class="eyebrow">04 / VERIFICATION</p>
+        <h2>Evidence with clear boundaries.</h2>
+        <div class="evidence">
+          <div>
+            <p class="count">8</p>
+            <p class="count-label">security regression checks passed</p>
+            <a
+              class="button secondary"
+              href="https://github.com/anda751/diabetes-chatbot/actions"
+              >Inspect CI runs ↗</a
+            >
+          </div>
+          <div>
+            <p class="check">
+              <strong>Builds & database connection</strong>Both web builds
+              passed. A read-only connection check passed against the configured
+              PostgreSQL database with encryption and certificate verification
+              enabled.
+            </p>
+            <p class="check">
+              <strong>Prior Android verification</strong>Android app and
+              notification behavior were previously tested successfully, as
+              confirmed by the project owner. This review did not repeat a
+              device installation.
+            </p>
+            <p class="check">
+              <strong>Repeatable review</strong>Regression tests and production
+              builds run in GitHub Actions. The source review records fixes,
+              checks, and remaining work.
+            </p>
+            <div class="limit">
+              <h3>What this evidence does not claim</h3>
+              <ul>
+                <li>
+                  The screen gallery uses intercepted synthetic API responses;
+                  its sample totals are not real usage metrics.
+                </li>
+                <li>
+                  The database check used SELECT 1 only. It does not verify full
+                  persistence, schema migrations, or every API workflow.
+                </li>
+                <li>
+                  Medical response quality, Android release packaging,
+                  accessibility on physical devices, and load testing remain
+                  separate validation activities.
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+      <section class="closing wrap">
+        <p class="eyebrow">05 / NEXT ITERATION</p>
+        <h2>The next step is deeper integration coverage.</h2>
+        <p>
+          Add isolated database/API integration tests, strengthen authentication
+          throttling, and rerun Android notification checks whenever related
+          code changes.
+        </p>
+        <div class="actions">
+          <a class="button" href="https://github.com/anda751/diabetes-chatbot"
+            >Explore the repository ↗</a
+          ><a
+            class="button secondary"
+            href="https://github.com/anda751/diabetes-chatbot/blob/main/REVIEW.md"
+            >Read the engineering review ↗</a
+          >
+        </div>
+        <div class="cross">
+          <span>More projects:</span
+          ><a href="https://pawfect-case-study.vercel.app">Pawfect Grooming</a
+          ><a href="https://tg-team-case-study.vercel.app">TG Team</a>
+        </div>
+      </section>
+    </main>
+    <footer class="footer wrap">
+      <span>Today Care · Portfolio case study · anda751</span
+      ><span>Review and presentation prepared with AI-assisted tools.</span>
+    </footer>
+    <dialog id="lightbox" aria-label="Enlarged application screenshot">
+      <button id="close-lightbox" type="button">Close ×</button
+      ><img id="large-image" alt="" />
+      <p>Actual application UI · Synthetic demonstration data</p>
+    </dialog>
+    <script id="screen-data" type="application/json">
+      [
+        [
+          "mobile",
+          "Daily dashboard",
+          "The mobile dashboard presents recent readings and the daily care entry points."
+        ],
+        [
+          "report",
+          "Glucose summary",
+          "A summary view organizes example records by period."
+        ],
+        [
+          "admin",
+          "Administrator workspace",
+          "A separate interface provides charts, filters, and knowledge/evaluation tools."
+        ],
+        [
+          "dashboard",
+          "Desktop presentation",
+          "The web app preserves its mobile-oriented presentation on a wide screen."
+        ]
+      ]
+    </script>
+  </body>
+</html>

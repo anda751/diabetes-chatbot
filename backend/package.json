@@ -12,7 +12,8 @@
     "generate:benchmark:diverse": "node scripts/generate-diverse-benchmark.js",
     "benchmark:intents": "node scripts/evaluate-intent-rules.js",
     "benchmark:real": "node scripts/run-real-benchmark.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "db:check": "node scripts/check-database.js"
   },
   "dependencies": {
     "@google/genai": "^1.45.0",

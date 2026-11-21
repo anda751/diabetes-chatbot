@@ -12,17 +12,21 @@ Reviewed the current GitHub source, browser-origin policy, signed sessions, data
 
 ## Verification
 
-- Security regression tests: 7 passed.
+- Security regression tests: 8 passed, including bundled provider-CA coverage.
 - Backend `server.js` syntax check: passed.
 - Customer frontend production build: passed after installing root dependencies as documented (Capacitor is a root dependency).
 - Admin frontend production build: passed.
 - Prior Android testing: the project owner confirms that the Android app was tested and notifications worked successfully. This is an owner-reported result from earlier testing, not a fresh Android run during this source review.
 
-The automated tests in this review do not connect to a database, send notifications, call an AI provider, or process real patient data. Android packaging was not rerun during this review. Live database connectivity after the TLS changes, API persistence, and provider credentials remain unverified in this review.
+The automated regression tests do not connect to a database, send notifications, call an AI provider, or process real patient data. A separate read-only `SELECT 1` check against the existing configured database passed with `encrypted=true` and `certificateVerified=true` after adding the public Supabase CA. No records or schemas were changed. This confirms connectivity and certificate trust, not complete API persistence or isolated staging acceptance. Android packaging was not rerun; AI and notification provider credentials were not checked.
+
+## Portfolio presentation
+
+The English README now includes a screenshot cover, synthetic demo gallery, architecture, setup, and recorded evidence. [The case study](https://today-care-case-study.vercel.app) follows the Pawfect presentation structure and includes keyboard-operable screenshot selection and enlargement. The two new case-study sites passed 22 combined responsive/interaction checks, including 320, 390, 768, and 1440px layouts. Screens are captured from actual built UI with synthetic intercepted responses; their totals are not business or patient outcomes.
 
 ## Deployment requirements
 
-Set exact production `ALLOWED_ORIGINS` for the customer app, admin app, and any native client. Use HTTPS for production cookie sessions. Provide the database provider's trusted CA through `PGSSL_CA` when the default trust store does not recognize its certificate, then validate the connection in staging before deploying. Missing trust configuration should be corrected rather than disabling verification.
+Set exact production `ALLOWED_ORIGINS` for the customer app, admin app, and any native client. Use HTTPS for production cookie sessions. The verified public Supabase CA is bundled in `backend/certs` and selected for Supabase hosts. `PGSSL_CA` takes priority for other providers or CA rotation. `npm --prefix backend run db:check` repeats the read-only check with your own local configuration. Run full application acceptance in an isolated staging environment before a broader release.
 
 ## Next priorities
 

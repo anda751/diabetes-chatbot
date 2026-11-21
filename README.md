@@ -1,17 +1,35 @@
 # Today Care — Diabetes Care AI
 
-A web application and Capacitor-based Android app for logging blood glucose readings, managing meal reminders, chatting with a Gemini-powered assistant, and reviewing information through an administrator dashboard.
+A Thai health-support web and Android application for glucose logging, meal reminders, educational chat, and administrator review.
 
-> This is a health-support software project. AI-generated responses are not a substitute for professional medical advice, diagnosis, or treatment.
+[Explore the case study](https://today-care-case-study.vercel.app) · [View demo screens](#demo-screens) · [Read the engineering review](REVIEW.md)
 
-## Features
+![Today Care: full-stack health-support project with actual application screenshots and synthetic data](portfolio/case-study/assets/cover.png)
 
-- Registration and login using session cookies.
-- Blood glucose logging and history views.
-- A Gemini AI assistant that can use the user's health context.
-- Meal reminders, Web Push, and Android local notifications.
-- Reports and frequently asked topics.
-- An admin panel for statistics, users, data logs, knowledge content, and AI-response evaluation.
+> Portfolio project. Demo screens use synthetic data. AI responses support education and do not replace medical advice, diagnosis, or treatment. No clinical effectiveness or real-world health outcome is claimed.
+
+## What the project demonstrates
+
+- A connected frontend, Express API, and Supabase PostgreSQL database.
+- Mobile-oriented React screens with a Capacitor Android shell.
+- Glucose logging, history, trend summaries, and meal reminder settings.
+- Gemini-powered educational chat with health-context support.
+- A separate admin interface for usage, records, knowledge content, and response evaluation.
+- Signed HttpOnly session cookies, authenticated routes, and verified database TLS.
+
+## Demo screens
+
+| Daily dashboard | Glucose summary |
+|---|---|
+| ![Daily dashboard with synthetic readings](portfolio/case-study/assets/mobile.png) | ![Glucose summary with synthetic records](portfolio/case-study/assets/report.png) |
+
+![Administrator dashboard with synthetic activity data](portfolio/case-study/assets/admin.png)
+
+## Demonstration assets
+
+Screenshots were captured from local production builds with intercepted synthetic API responses on 21 November 2026. Names, records, project data, and dashboard totals are fixtures. They are not production usage metrics. The case-study gallery presents actual application UI and does not grant access to a live operational database.
+
+The [interactive case study](https://today-care-case-study.vercel.app) includes screen selection and full-size image viewing. A [Markdown version](portfolio/CASE_STUDY.md) is also available on GitHub. The public presentation is separate from the authenticated application.
 
 ## Tech stack
 
@@ -22,86 +40,61 @@ A web application and Capacitor-based Android app for logging blood glucose read
 | Backend | Node.js, Express |
 | Database | Supabase PostgreSQL |
 | AI | Google Gemini through the Google Gen AI SDK |
-| Android | Capacitor and local notification plugins |
-| Notifications | Web Push and Android local notifications |
+| Android | Capacitor, native local notifications |
+| Web notifications | Web Push |
+| Verification | Node test runner, GitHub Actions |
+
+## Architecture
+
+```mermaid
+flowchart LR
+  User[React web / Capacitor Android] --> API[Express API]
+  Admin[React admin interface] --> API
+  API --> DB[(Supabase PostgreSQL)]
+  API --> AI[Gemini]
+  API --> Push[Web Push]
+  User --> Local[Android local reminders]
+```
+
+Database credentials and AI/notification secrets stay on the server. The application uses its own sessions; Supabase supplies PostgreSQL.
 
 ## Repository structure
 
-| Directory | Purpose |
-|---|---|
-| `frontend/` | User-facing React and Vite application |
-| `admin-panel/` | React and Vite administrator interface |
-| `backend/` | Express API, business logic, database access, and evaluation tools |
-| `android/` | Capacitor-generated Android shell |
-| `docs/` | System, development, and deployment documentation |
+```text
+frontend/        # User-facing React application
+admin-panel/     # Administrator interface
+backend/         # Express API, database access, security tests and evaluation tools
+android/         # Capacitor Android shell
+docs/            # Architecture, API, setup and development notes
+portfolio/       # Case study source and approved synthetic screenshots
+```
 
 ## Run locally
 
-Install dependencies from the repository root:
+Use Node.js 22 and your own isolated test database. Install the root dependencies first because the frontend imports Capacitor packages from the root project:
 
 ```bash
-npm install
-npm --prefix backend install
-npm --prefix frontend install
-npm --prefix admin-panel install
+npm ci
+npm --prefix backend ci
+npm --prefix frontend ci
+npm --prefix admin-panel ci
 ```
 
-Copy `backend/.env.example` to `backend/.env` and supply the required settings for your own test environment. Review the frontend/admin environment examples as well; the user frontend uses `VITE_API_URL`.
-
-Start the API:
+Copy `backend/.env.example` to `backend/.env` and configure your test database, session/admin secrets, and any required providers. Review the frontend/admin environment examples; the user frontend uses `VITE_API_URL`.
 
 ```bash
+npm --prefix backend run db:check
 npm run dev:backend
-```
-
-In another terminal, start the user frontend:
-
-```bash
+# In separate terminals:
 npm run dev:frontend
-```
-
-- User frontend: `http://localhost:5173`
-- API health check: `http://localhost:5000/api/health`
-
-To run the admin interface separately:
-
-```bash
 npm --prefix admin-panel run dev
 ```
 
-## Android workflow
+The user frontend normally runs at `http://localhost:5173`; the API health endpoint is `http://localhost:5000/api/health`. Use the actual URL printed by Vite for the admin app.
 
-The project includes a Capacitor Android shell. With the required Android development tools installed:
+The public Supabase root CA is bundled in `backend/certs`. Remote database connections require verified TLS; `PGSSL_CA` can override the trust bundle for another provider or a CA rotation. List the exact production web/admin/native origins in `ALLOWED_ORIGINS`.
 
-```bash
-npm run build:app
-npm run android:open
-```
-
-See the [Android build guide](docs/ANDROID_APP_BUILD.md) for environment-specific setup.
-
-## Documentation
-
-- [System architecture](docs/SYSTEM_ARCHITECTURE.md)
-- [API reference](docs/API_DOCUMENTATION.md)
-- [Database schema](docs/DATABASE_SCHEMA.md)
-- [Setup and configuration](docs/SETUP_CONFIGURATION.md)
-- [Code standards](docs/CODE_STANDARDS.md)
-- [Known issues and roadmap](docs/KNOWN_ISSUES_AND_ROADMAP.md)
-- [Source code guide](docs/SOURCE_CODE_GUIDE.md)
-- [Dataset and evaluation guide](docs/DATASET_GUIDE.md)
-- [Libraries and dependencies](docs/LIBRARIES_AND_DEPENDENCIES.md)
-- [Development workflow](docs/DEVELOPMENT_WORKFLOW.md)
-- [Deploying the backend to Railway](docs/RAILWAY_BACKEND_DEPLOY.md)
-- [Deploying the frontend to Vercel](docs/VERCEL_DEPLOY.md)
-
-## Deployment and configuration
-
-The documented deployment architecture uses Vercel for the frontend, Railway for the backend, and Supabase PostgreSQL for the database. AI and notification capabilities require their corresponding provider configuration.
-
-Keep database credentials, AI API keys, notification secrets, and populated `.env` files outside Git. Use isolated test data when demonstrating health-related features.
-
-## Verification and review
+## Checks and evidence
 
 ```bash
 npm --prefix backend test
@@ -109,6 +102,37 @@ npm --prefix frontend run build
 npm --prefix admin-panel run build
 ```
 
-Install the root dependencies first: the frontend imports Capacitor packages from the root project. See [the scoped review](REVIEW.md) for security changes and deployment requirements. GitHub Actions runs the security regression tests and both web builds.
+| Check | Recorded result |
+|---|---|
+| Security regression tests | 8 passed |
+| User and admin production builds | Passed |
+| Database connectivity | Read-only SELECT 1 passed with encryption and certificate verification |
+| Android notifications | Previously tested successfully, as confirmed by the project owner |
 
-The project owner confirms that the Android app was previously tested and notifications worked successfully. Android packaging was not rerun during the latest source review; notification checks should be repeated when relevant app or notification code changes. Live database connectivity after the latest TLS changes still requires verification.
+The database check does not establish full API persistence or replace isolated integration tests. Android was not reinstalled during this review. Repeat relevant device checks when app/notification code changes. See [REVIEW.md](REVIEW.md) for evidence boundaries and remaining work.
+
+## Android workflow
+
+With the Android development tools installed:
+
+```bash
+npm run build:app
+npm run android:open
+```
+
+See the [Android build guide](docs/ANDROID_APP_BUILD.md).
+
+## Documentation
+
+- [Case study](portfolio/CASE_STUDY.md)
+- [System architecture](docs/SYSTEM_ARCHITECTURE.md)
+- [API reference](docs/API_DOCUMENTATION.md)
+- [Database schema](docs/DATABASE_SCHEMA.md)
+- [Setup and configuration](docs/SETUP_CONFIGURATION.md)
+- [Source code guide](docs/SOURCE_CODE_GUIDE.md)
+- [Dataset and evaluation guide](docs/DATASET_GUIDE.md)
+- [Known issues and roadmap](docs/KNOWN_ISSUES_AND_ROADMAP.md)
+- [Railway backend deployment](docs/RAILWAY_BACKEND_DEPLOY.md)
+- [Vercel frontend deployment](docs/VERCEL_DEPLOY.md)
+
+Keep populated environment files, health data exports, private keys, and provider credentials outside Git. Demonstrate health-related features using synthetic data.

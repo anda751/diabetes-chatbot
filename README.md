@@ -109,4 +109,6 @@ npm --prefix frontend run build
 npm --prefix admin-panel run build
 ```
 
-Install the root dependencies first: the frontend imports Capacitor packages from the root project. See [the scoped review](REVIEW.md) for security changes and deployment requirements. GitHub Actions runs the security regression tests and both web builds. Android packaging and live provider integration require separate checks.
+Install the root dependencies first: the frontend imports Capacitor packages from the root project. See [the scoped review](REVIEW.md) for security changes and deployment requirements. GitHub Actions runs the security regression tests and both web builds.
+
+The project owner confirms that the Android app was previously tested and notifications worked successfully. Android packaging was not rerun during the latest source review; notification checks should be repeated when relevant app or notification code changes. Live database connectivity after the latest TLS changes still requires verification.

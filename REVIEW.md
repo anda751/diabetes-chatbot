@@ -16,8 +16,9 @@ Reviewed the current GitHub source, browser-origin policy, signed sessions, data
 - Backend `server.js` syntax check: passed.
 - Customer frontend production build: passed after installing root dependencies as documented (Capacitor is a root dependency).
 - Admin frontend production build: passed.
+- Prior Android testing: the project owner confirms that the Android app was tested and notifications worked successfully. This is an owner-reported result from earlier testing, not a fresh Android run during this source review.
 
-Tests do not connect to a database, send notifications, call an AI provider, or process real patient data. Android packaging, live API persistence, and provider credentials were not verified.
+The automated tests in this review do not connect to a database, send notifications, call an AI provider, or process real patient data. Android packaging was not rerun during this review. Live database connectivity after the TLS changes, API persistence, and provider credentials remain unverified in this review.
 
 ## Deployment requirements
 
@@ -28,4 +29,4 @@ Set exact production `ALLOWED_ORIGINS` for the customer app, admin app, and any 
 - Add isolated API/database tests for registration, session expiry, per-user medical records, and admin authorization.
 - Add distributed authentication/request throttling and review retention/access controls for health data.
 - Keep medical-support scope and limitations visible; use synthetic data in portfolio demonstrations.
-- Verify physical Android notifications, mobile accessibility, provider failure states, and dependency advisories separately.
+- Rerun Android notification checks when changes affect the Android app or notification flow. Review mobile accessibility, provider failure states, and dependency advisories separately.

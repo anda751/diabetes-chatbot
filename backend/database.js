@@ -1,4 +1,5 @@
 import { Pool } from "pg";
+import { databaseConnectionOptions } from "./database-security.js";
 
 function getConnectionString() {
   return process.env.SUPABASE_DB_URL?.trim() || process.env.DATABASE_URL?.trim() || "";
@@ -13,15 +14,7 @@ function createPool() {
     );
   }
 
-  const useSsl =
-    process.env.PGSSLMODE === "disable" || connectionString.includes("localhost")
-      ? false
-      : { rejectUnauthorized: false };
-
-  return new Pool({
-    connectionString,
-    ssl: useSsl,
-  });
+  return new Pool(databaseConnectionOptions(connectionString));
 }
 
 function normalizeParams(params) {

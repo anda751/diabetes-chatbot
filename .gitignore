@@ -77,3 +77,7 @@ android/release-key.jks
 admin-panel/build-check/
 admin-panel/build-check-admin/
 admin-panel/build-check-admin-2/
+
+# Local review and delivery artifacts
+.codex-build/
+deliverables/

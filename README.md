@@ -100,3 +100,13 @@ See the [Android build guide](docs/ANDROID_APP_BUILD.md) for environment-specifi
 The documented deployment architecture uses Vercel for the frontend, Railway for the backend, and Supabase PostgreSQL for the database. AI and notification capabilities require their corresponding provider configuration.
 
 Keep database credentials, AI API keys, notification secrets, and populated `.env` files outside Git. Use isolated test data when demonstrating health-related features.
+
+## Verification and review
+
+```bash
+npm --prefix backend test
+npm --prefix frontend run build
+npm --prefix admin-panel run build
+```
+
+Install the root dependencies first: the frontend imports Capacitor packages from the root project. See [the scoped review](REVIEW.md) for security changes and deployment requirements. GitHub Actions runs the security regression tests and both web builds. Android packaging and live provider integration require separate checks.

@@ -35,6 +35,7 @@ import {
   upsertChatEvaluation,
 } from "./adminAnalytics.js";
 import { initDB } from "./database.js";
+import { isTrustedOrigin, verifySignature } from "./request-security.js";
 
 // Local overrides are ignored by Git and take precedence over shared development values.
 dotenv.config({ path: ".env.local", override: true, quiet: true });
@@ -70,63 +71,22 @@ function getRequiredEnv(name, { allowDevFallback = false, fallbackValue = "" } =
   );
 }
 
-function normalizeOriginValue(value) {
-  return typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
-}
-
-function matchesOriginPattern(origin, pattern) {
-  const normalizedOrigin = normalizeOriginValue(origin);
-  const normalizedPattern = normalizeOriginValue(pattern);
-  if (!normalizedOrigin || !normalizedPattern) return false;
-  if (normalizedOrigin === normalizedPattern) return true;
-
-  // Support patterns like https://*.vercel.app for preview deployments.
-  if (!normalizedPattern.includes("*")) return false;
-
-  const escapedPattern = normalizedPattern
-    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*/g, ".*");
-  const regex = new RegExp(`^${escapedPattern}$`);
-  return regex.test(normalizedOrigin);
-}
-
-function isPrivateNetworkOrigin(origin) {
-  try {
-    const { hostname } = new URL(origin);
-    if (!hostname) return false;
-    if (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1") {
-      return true;
-    }
-
-    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-    if (!ipv4Match) return false;
-
-    const octets = ipv4Match.slice(1).map(Number);
-    if (octets.some((octet) => Number.isNaN(octet) || octet < 0 || octet > 255)) {
-      return false;
-    }
-
-    const [a, b] = octets;
-    if (a === 10) return true;
-    if (a === 172 && b >= 16 && b <= 31) return true;
-    if (a === 192 && b === 168) return true;
-    return false;
-  } catch (_error) {
-    return false;
-  }
-}
-
 const allowedOrigins = (
   process.env.ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean) ||
   DEFAULT_ALLOWED_ORIGINS
 );
 
 function isAllowedOrigin(origin) {
-  if (!origin) return true;
-  if (isPrivateNetworkOrigin(origin)) return true;
-  return allowedOrigins.some((allowedOrigin) => matchesOriginPattern(origin, allowedOrigin));
+  return isTrustedOrigin(origin, allowedOrigins, IS_PRODUCTION);
 }
 
+// Reject untrusted browser requests before any route can mutate state.
+app.use((req, res, next) => {
+  if (!isAllowedOrigin(req.headers.origin)) {
+    return res.status(403).json({ error: "Origin not allowed" });
+  }
+  return next();
+});
 app.use(
   cors({
     origin(origin, callback) {
@@ -194,7 +154,7 @@ const SESSION_COOKIE_SAME_SITE = process.env.SESSION_COOKIE_SAME_SITE?.trim() ||
 const SESSION_COOKIE_SECURE =
   process.env.SESSION_COOKIE_SECURE === "true" ||
   SESSION_COOKIE_SAME_SITE.toLowerCase() === "none" ||
-  Boolean(process.env.VERCEL);
+  Boolean(process.env.VERCEL) || IS_PRODUCTION;
 const ADMIN_USERNAME = getRequiredEnv("ADMIN_USERNAME", {
   allowDevFallback: true,
   fallbackValue: "admin",
@@ -420,7 +380,7 @@ function verifySessionCookie(cookieValue) {
 
   const [payload, signature] = cookieValue.split(".");
   if (!payload || !signature) return null;
-  if (signValue(payload) !== signature) return null;
+  if (!verifySignature(payload, signature, SESSION_SECRET)) return null;
 
   try {
     const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
@@ -440,7 +400,7 @@ function verifyAdminSessionCookie(cookieValue) {
 
   const [payload, signature] = cookieValue.split(".");
   if (!payload || !signature) return null;
-  if (signValue(payload) !== signature) return null;
+  if (!verifySignature(payload, signature, SESSION_SECRET)) return null;
 
   try {
     const session = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
